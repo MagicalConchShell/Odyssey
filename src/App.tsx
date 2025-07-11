@@ -1,0 +1,282 @@
+import { useState, useEffect, useCallback } from 'react'
+import { ArrowLeft } from 'lucide-react'
+import { ClaudeMdFile } from './types/electron'
+
+// Import components
+import { ClaudeCodeSession, type Session } from './components/ClaudeCodeSession'
+import { Settings } from './components/Settings'
+import { UsageDashboard } from './components/UsageDashboard'
+import { MCPManager } from './components/MCPManager'
+import { WelcomeScreen } from './components/WelcomeScreen'
+import { Topbar } from './components/Topbar'
+import { ThemeProvider } from './components/theme-provider'
+import { MarkdownEditor } from './components/MarkdownEditor'
+import { ClaudeFileEditor } from './components/ClaudeFileEditor'
+
+type View = "welcome" | "settings" | "usage-dashboard" | "mcp" | "claude-session" | "editor" | "claude-editor" | "claude-file-editor"
+
+function App(){
+  const [view, setView] = useState<View>("welcome")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showNFO, setShowNFO] = useState(false)
+  const [platform, setPlatform] = useState<string>('unknown')
+  
+  // Claude session state
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+  
+  // CLAUDE.md editor state
+  const [selectedClaudeMdFile] = useState<ClaudeMdFile | null>(null)
+
+  // Load platform information
+  useEffect(() => {
+    const getPlatform = async () => {
+      try {
+        if (window.electronAPI) {
+          const response = await window.electronAPI.getPlatform()
+          if (response.success && response.data) {
+            setPlatform(response.data)
+          } else {
+            throw new Error(response.error || 'Failed to get platform')
+          }
+        }
+      } catch (error) {
+        console.error('Failed to get platform:', error)
+        // Fallback to user agent detection
+        const userAgent = navigator.userAgent.toLowerCase()
+        if (userAgent.includes('mac')) {
+          setPlatform('darwin')
+        } else if (userAgent.includes('win')) {
+          setPlatform('win32')
+        } else if (userAgent.includes('linux')) {
+          setPlatform('linux')
+        }
+      }
+    }
+    getPlatform()
+  }, [])
+
+  // Load data based on current view
+  useEffect(() => {
+    if (view === "welcome") {
+      setLoading(false)
+      return
+    }
+
+    const loadViewData = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        
+        // Check if electronAPI is available
+        if (!window.electronAPI) {
+          throw new Error('electronAPI not available - not running in Electron')
+        }
+
+
+        // Load data based on view
+        // Projects view data is handled by ProjectList component
+
+        
+      } catch (error) {
+        console.error('Failed to load view data:', error)
+        setError(error instanceof Error ? error.message : 'Unknown error')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadViewData()
+  }, [view])
+
+  // Move useCallback hooks to component top level to fix React Error #310
+  const handleSelectProject = useCallback((projectPath: string) => {
+    setSelectedSession(null)
+    setSelectedProjectPath(projectPath)
+    setView("claude-session")
+  }, [])
+
+
+
+  const renderCurrentView = () => {
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-lg">Loading...</p>
+            {error && (
+              <div className="mt-4 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded">
+                <p className="font-medium">Loading error:</p>
+                <p className="text-sm">{error}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    switch (view) {
+      case "welcome":
+        return renderWelcomeView()
+      case "claude-session":
+        return renderClaudeSessionView()
+      case "settings":
+        return renderSettingsView()
+      case "usage-dashboard":
+        return renderUsageView()
+      case "mcp":
+        return renderMCPView()
+      case "editor":
+        return renderEditorView()
+      case "claude-editor":
+        return renderClaudeEditorView()
+      case "claude-file-editor":
+        return renderClaudeFileEditorView()
+      default:
+        return renderWelcomeView()
+    }
+  }
+
+  const renderWelcomeView = () => (
+    <WelcomeScreen
+      onSelectProject={handleSelectProject}
+      onNavigate={setView}
+    />
+  )
+
+
+
+
+  const renderClaudeSessionView = () => (
+    <ClaudeCodeSession
+      session={selectedSession || undefined}
+      initialProjectPath={selectedProjectPath}
+      onBack={() => setView("welcome")}
+    />
+  )
+
+  const renderSettingsView = () => (
+    <Settings onBack={() => setView("welcome")} />
+  )
+
+  const renderUsageView = () => (
+    <UsageDashboard onBack={() => setView("welcome")} />
+  )
+
+  const renderMCPView = () => (
+    <MCPManager onBack={() => setView("welcome")} />
+  )
+
+  const renderEditorView = () => (
+    <div className="min-h-screen bg-background p-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="mb-6">
+          <button
+            onClick={() => setView("welcome")}
+            className="mb-4 px-3 py-2 text-sm bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors flex items-center"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Home
+          </button>
+          <h1 className="text-3xl font-bold">CLAUDE.md Editor</h1>
+          <p className="text-muted-foreground">Edit your CLAUDE.md files</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div 
+            className="p-6 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+            onClick={() => setView("claude-editor")}
+          >
+            <h3 className="text-lg font-semibold mb-2">Global CLAUDE.md</h3>
+            <p className="text-sm text-muted-foreground">
+              Edit your global Claude Code system prompt (~/.claude/CLAUDE.md)
+            </p>
+          </div>
+          
+          <div 
+            className="p-6 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+            onClick={() => setView("welcome")}
+          >
+            <h3 className="text-lg font-semibold mb-2">Project CLAUDE.md Files</h3>
+            <p className="text-sm text-muted-foreground">
+              Edit project-specific CLAUDE.md files from your projects
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderClaudeEditorView = () => (
+    <MarkdownEditor onBack={() => setView("editor")} />
+  )
+
+  const renderClaudeFileEditorView = () => {
+    if (!selectedClaudeMdFile) {
+      return (
+        <div className="min-h-screen bg-background p-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center py-12">
+              <p className="text-lg text-muted-foreground">No CLAUDE.md file selected</p>
+              <button
+                onClick={() => setView("welcome")}
+                className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+              >
+                Go to Welcome
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <ClaudeFileEditor 
+        file={selectedClaudeMdFile} 
+        onBack={() => setView("welcome")} 
+      />
+    )
+  }
+
+  return (
+    <ThemeProvider defaultTheme="dark" storageKey="odyssey-ui-theme">
+      <div className="h-screen bg-background flex flex-col">
+        {/* Topbar */}
+        <Topbar
+          onInfoClick={() => setShowNFO(true)}
+          platform={platform}
+        />
+        
+        {/* Main Content */}
+        <div className="flex-1 overflow-y-auto">
+          {renderCurrentView()}
+        </div>
+        
+        {/* NFO Credits Modal - placeholder for now */}
+        {showNFO && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={() => setShowNFO(false)}
+          >
+            <div className="bg-background p-6 rounded-lg max-w-md mx-4">
+              <h2 className="text-xl font-bold mb-4">About Odyssey</h2>
+              <p className="text-muted-foreground mb-4">
+                A powerful GUI for Claude Code built with Electron and React.
+              </p>
+              <button 
+                onClick={() => setShowNFO(false)}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </ThemeProvider>
+  )
+}
+
+export default App

@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+//    "module": "NodeNext",
+//    "moduleResolution": "NodeNext",
+    "lib": ["ES2020"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": false,
+    "outDir": "dist/electron",
+    "rootDir": "electron",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    // Fixes the 'better-sqlite3' and 'micromatch' import errors
+    "esModuleInterop": true,
+
+    // Allows TypeScript to compile even if you use the built-in __dirname
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "electron/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "release"
+  ]
+}
