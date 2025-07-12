@@ -470,6 +470,322 @@ async function getProjectSessions(projectId: string): Promise<Session[]> {
   }
 }
 
+// ===================
+// Project-Focused Workflow Extensions
+// ===================
+
+/**
+ * Enhanced project interface for project-focused workflows
+ */
+interface ProjectWorkspace extends Project {
+  settings?: {
+    aiModel?: string;
+    autoCheckpoint?: boolean;
+    checkpointInterval?: number;
+    customPromptTemplate?: string;
+    excludePatterns?: string[];
+    includePatterns?: string[];
+    maxHistoryLength?: number;
+    enableDebugMode?: boolean;
+  };
+  conversationHistory?: any[];
+  lastAISessionId?: string;
+  aiProvider?: string;
+}
+
+/**
+ * Project conversation entry
+ */
+interface ProjectConversation {
+  id: string;
+  projectId: string;
+  messages: any[];
+  createdAt: number;
+  updatedAt: number;
+  aiSessionId?: string;
+  checkpointHashes?: string[];
+  totalTokens?: number;
+}
+
+/**
+ * Create project workspace (enhanced project creation)
+ */
+async function createProjectWorkspace(request: ProjectCreateRequest & { 
+  settings?: any;
+  aiProvider?: string;
+}): Promise<ProjectWorkspace> {
+  // Validate path exists
+  if (!(await validateWorkingDirectory(request.path))) {
+    throw new Error('Invalid project path');
+  }
+
+  // Check if project already exists
+  const existingProject = dbManager.getProjectByPath(request.path);
+  if (existingProject) {
+    throw new Error('Project already exists');
+  }
+
+  const projectId = generateProjectId();
+  const now = Date.now();
+  
+  // Create base project
+  const project = dbManager.createProject({
+    id: projectId,
+    name: request.name,
+    path: request.path,
+    type: request.type || 'manual',
+    last_opened: now,
+    is_pinned: false,
+    tags: request.tags,
+    claude_project_id: request.claude_project_id
+  });
+
+  // Initialize project workspace with default settings
+  const workspace: ProjectWorkspace = {
+    ...project,
+    settings: {
+      aiModel: 'claude-sonnet',
+      autoCheckpoint: true,
+      checkpointInterval: 5,
+      customPromptTemplate: '',
+      excludePatterns: ['.git', 'node_modules', '.env', '*.log'],
+      includePatterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.md'],
+      maxHistoryLength: 1000,
+      enableDebugMode: false,
+      ...request.settings
+    },
+    conversationHistory: [],
+    aiProvider: request.aiProvider || 'anthropic'
+  };
+
+  // TODO: Store workspace settings in database
+  console.log(`Created project workspace: ${projectId}`);
+  
+  return workspace;
+}
+
+/**
+ * Get project workspace with enhanced data
+ */
+async function getProjectWorkspace(projectId: string): Promise<ProjectWorkspace | null> {
+  const project = dbManager.getProject(projectId);
+  if (!project) {
+    return null;
+  }
+
+  // TODO: Load project settings and conversation history from database
+  const workspace: ProjectWorkspace = {
+    ...project,
+    settings: {
+      aiModel: 'claude-sonnet',
+      autoCheckpoint: true,
+      checkpointInterval: 5,
+      customPromptTemplate: '',
+      excludePatterns: ['.git', 'node_modules', '.env', '*.log'],
+      includePatterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.md'],
+      maxHistoryLength: 1000,
+      enableDebugMode: false
+    },
+    conversationHistory: [],
+    aiProvider: 'anthropic'
+  };
+
+  return workspace;
+}
+
+/**
+ * Update project workspace settings
+ */
+async function updateProjectWorkspace(
+  projectId: string, 
+  updates: Partial<ProjectWorkspace>
+): Promise<ProjectWorkspace> {
+  const project = dbManager.updateProject(projectId, updates);
+  if (!project) {
+    throw new Error('Project not found');
+  }
+
+  // TODO: Update project settings in database
+  console.log(`Updated project workspace: ${projectId}`);
+  
+  return await getProjectWorkspace(projectId) || project as ProjectWorkspace;
+}
+
+/**
+ * Save project conversation
+ */
+async function saveProjectConversation(
+  projectId: string,
+  conversation: Omit<ProjectConversation, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<ProjectConversation> {
+  const conversationId = generateProjectId();
+  const now = Date.now();
+  
+  const savedConversation: ProjectConversation = {
+    id: conversationId,
+    createdAt: now,
+    updatedAt: now,
+    ...conversation,
+    projectId
+  };
+
+  // TODO: Store conversation in database
+  console.log(`Saved conversation ${conversationId} for project ${projectId}`);
+  
+  return savedConversation;
+}
+
+/**
+ * Load project conversations
+ */
+async function loadProjectConversations(projectId: string): Promise<ProjectConversation[]> {
+  // TODO: Load conversations from database
+  console.log(`Loading conversations for project ${projectId}`);
+  
+  return [];
+}
+
+/**
+ * Get project conversation history
+ */
+async function getProjectConversationHistory(
+  projectId: string,
+  _limit: number = 100
+): Promise<any[]> {
+  // TODO: Load conversation history from database
+  console.log(`Loading conversation history for project ${projectId}`);
+  
+  return [];
+}
+
+/**
+ * Link conversation to checkpoint
+ */
+async function linkConversationToCheckpoint(
+  conversationId: string,
+  checkpointHash: string
+): Promise<boolean> {
+  // TODO: Store conversation-checkpoint link in database
+  console.log(`Linking conversation ${conversationId} to checkpoint ${checkpointHash}`);
+  
+  return true;
+}
+
+/**
+ * Get conversations linked to checkpoint
+ */
+async function getCheckpointConversations(
+  checkpointHash: string
+): Promise<ProjectConversation[]> {
+  // TODO: Load conversations linked to checkpoint
+  console.log(`Loading conversations for checkpoint ${checkpointHash}`);
+  
+  return [];
+}
+
+/**
+ * Export project workspace data
+ */
+async function exportProjectWorkspace(
+  projectId: string,
+  format: 'json' | 'markdown' = 'json'
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const workspace = await getProjectWorkspace(projectId);
+    if (!workspace) {
+      return { success: false, error: 'Project not found' };
+    }
+
+    const conversations = await loadProjectConversations(projectId);
+    const conversationHistory = await getProjectConversationHistory(projectId);
+
+    const exportData = {
+      project: workspace,
+      conversations,
+      conversationHistory,
+      exportedAt: new Date().toISOString(),
+      format
+    };
+
+    if (format === 'markdown') {
+      // TODO: Convert to markdown format
+      const markdown = `# Project: ${workspace.name}\n\n` +
+                      `**Path:** ${workspace.path}\n` +
+                      `**Created:** ${new Date(workspace.created_at).toISOString()}\n` +
+                      `**Conversations:** ${conversations.length}\n\n` +
+                      `## Conversation History\n\n` +
+                      conversationHistory.map(msg => `- ${msg.type}: ${msg.content}`).join('\n');
+      
+      return { success: true, data: markdown };
+    }
+
+    return { success: true, data: exportData };
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Export failed' 
+    };
+  }
+}
+
+/**
+ * Import project workspace data
+ */
+async function importProjectWorkspace(
+  _data: any,
+  _targetPath?: string
+): Promise<{ success: boolean; projectId?: string; error?: string }> {
+  try {
+    // TODO: Implement project workspace import
+    console.log('Importing project workspace data');
+    
+    return { success: false, error: 'Import not yet implemented' };
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Import failed' 
+    };
+  }
+}
+
+/**
+ * Get project analytics
+ */
+async function getProjectAnalytics(
+  projectId: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const workspace = await getProjectWorkspace(projectId);
+    if (!workspace) {
+      return { success: false, error: 'Project not found' };
+    }
+
+    const conversations = await loadProjectConversations(projectId);
+    const totalMessages = conversations.reduce((sum, conv) => sum + conv.messages.length, 0);
+    const totalTokens = conversations.reduce((sum, conv) => sum + (conv.totalTokens || 0), 0);
+
+    const analytics = {
+      projectId,
+      name: workspace.name,
+      path: workspace.path,
+      createdAt: workspace.created_at,
+      lastOpened: workspace.last_opened,
+      totalConversations: conversations.length,
+      totalMessages,
+      totalTokens,
+      aiProvider: workspace.aiProvider,
+      settings: workspace.settings
+    };
+
+    return { success: true, data: analytics };
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Analytics failed' 
+    };
+  }
+}
+
 /**
  * Register all project management related IPC handlers
  */
@@ -545,6 +861,87 @@ export function setupProjectManagementHandlers(ipcMain: IpcMain): void {
     'get-project-stats',
     getProjectStats,
     { requiresValidation: true, timeout: 15000 }
+  );
+
+  // Project workspace management
+  registerHandler(
+    ipcMain,
+    'create-project-workspace',
+    createProjectWorkspace,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'get-project-workspace',
+    getProjectWorkspace,
+    { requiresValidation: true, timeout: 5000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'update-project-workspace',
+    updateProjectWorkspace,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  // Project conversation management
+  registerHandler(
+    ipcMain,
+    'save-project-conversation',
+    saveProjectConversation,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'load-project-conversations',
+    loadProjectConversations,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'get-project-conversation-history',
+    getProjectConversationHistory,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  // Checkpoint-conversation linking
+  registerHandler(
+    ipcMain,
+    'link-conversation-to-checkpoint',
+    linkConversationToCheckpoint,
+    { requiresValidation: true, timeout: 5000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'get-checkpoint-conversations',
+    getCheckpointConversations,
+    { requiresValidation: true, timeout: 5000 }
+  );
+
+  // Project analytics and export
+  registerHandler(
+    ipcMain,
+    'get-project-analytics',
+    getProjectAnalytics,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'export-project-workspace',
+    exportProjectWorkspace,
+    { requiresValidation: true, timeout: 30000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'import-project-workspace',
+    importProjectWorkspace,
+    { requiresValidation: true, timeout: 30000 }
   );
 }
 

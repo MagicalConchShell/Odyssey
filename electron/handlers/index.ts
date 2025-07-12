@@ -7,7 +7,7 @@ import { setupUsageAnalyticsHandlers } from './usage-analytics.js';
 import { setupMcpHandlers } from './mcp.js';
 import { setupGitCheckpointHandlers } from './git-checkpoint.js';
 import { setupSystemHandlers } from './system.js';
-import { setupClaudeCodeSessionHandlers } from './claude-code-session.js';
+import { setupTerminalHandlers } from './terminal.js';
 
 /**
  * Register all IPC handlers in the correct order
@@ -24,7 +24,7 @@ export function setupAllHandlers(ipcMain: IpcMain): void {
   setupUsageAnalyticsHandlers(ipcMain);
   setupMcpHandlers(ipcMain);
   setupGitCheckpointHandlers(ipcMain);
-  setupClaudeCodeSessionHandlers(ipcMain);
+  setupTerminalHandlers();
   
   console.log('✅ All IPC handlers registered successfully');
 }
@@ -49,7 +49,7 @@ export {
   setupMcpHandlers,
   setupGitCheckpointHandlers,
   setupSystemHandlers,
-  setupClaudeCodeSessionHandlers
+  setupTerminalHandlers
 };
 
 // Export utility functions from individual modules
@@ -58,7 +58,6 @@ export { validateWorkingDirectory, resolveProjectPath } from './file-system.js';
 export { getProjectPathFromSessions } from './project-management.js';
 export { validateSettings, getDefaultSettings, mergeWithDefaults } from './settings.js';
 export { executeCommand, commandExists, getSystemInfo } from './system.js';
-export { registerProcess, cleanupAllProcesses, getActiveProcesses, getClaudeCodeSessionStats } from './claude-code-session.js';
 
 // Export all types for external use
 export * from './types.js';

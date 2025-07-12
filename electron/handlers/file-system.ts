@@ -1,5 +1,5 @@
 import { IpcMain } from 'electron';
-import { readdir, readFile, writeFile, mkdir, stat } from 'fs/promises';
+import { readdir, readFile, writeFile, mkdir, stat, lstat } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { registerHandler } from './base-handler.js';
@@ -27,6 +27,38 @@ async function writeFileContent(filePath: string, content: string): Promise<File
   try {
     await writeFile(filePath, content, 'utf8');
     return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Read directory contents
+ */
+async function readDirectoryContents(dirPath: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  try {
+    const entries = await readdir(dirPath);
+    const items = [];
+
+    for (const entry of entries) {
+      try {
+        const fullPath = join(dirPath, entry);
+        const stats = await lstat(fullPath);
+        
+        items.push({
+          path: entry,
+          fullPath,
+          isDirectory: stats.isDirectory(),
+          size: stats.size,
+          modified: stats.mtime.toISOString()
+        });
+      } catch (err) {
+        console.warn(`Failed to stat ${entry}:`, err);
+        // Skip this entry if we can't stat it
+      }
+    }
+
+    return { success: true, data: items };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -235,6 +267,13 @@ export function setupFileSystemHandlers(ipcMain: IpcMain): void {
     ipcMain,
     'write-file',
     writeFileContent,
+    { requiresValidation: true, timeout: 10000 }
+  );
+
+  registerHandler(
+    ipcMain,
+    'read-directory',
+    readDirectoryContents,
     { requiresValidation: true, timeout: 10000 }
   );
 

@@ -84,13 +84,13 @@ const ThinkingModeIndicator: React.FC<{ level: number }> = ({ level }) => {
 // Model configurations matching Rust version
 const MODELS = [
   {
-    id: 'sonnet' as const,
+    id: 'claude-sonnet' as const,
     name: 'Claude 3.5 Sonnet',
     description: 'Fast and intelligent',
     icon: <Zap className="h-4 w-4" />
   },
   {
-    id: 'opus' as const,
+    id: 'claude-opus' as const,
     name: 'Claude 3 Opus', 
     description: 'Most capable',
     icon: <Sparkles className="h-4 w-4" />
@@ -103,7 +103,7 @@ export interface FloatingPromptInputRef {
 }
 
 interface FloatingPromptInputProps {
-  onSend: (prompt: string, model: 'sonnet' | 'opus') => void
+  onSend: (prompt: string, model: 'claude-sonnet' | 'claude-opus') => void
   onCancel?: () => void
   isLoading?: boolean
   disabled?: boolean
@@ -123,7 +123,7 @@ export const FloatingPromptInput = forwardRef<FloatingPromptInputRef, FloatingPr
   className
 }, ref) => {
   const [prompt, setPrompt] = useState('')
-  const [selectedModel, setSelectedModel] = useState<'sonnet' | 'opus'>('sonnet')
+  const [selectedModel, setSelectedModel] = useState<'claude-sonnet' | 'claude-opus'>('claude-sonnet')
   const [selectedThinkingMode, setSelectedThinkingMode] = useState<ThinkingMode>('auto')
   const [isExpanded, setIsExpanded] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)

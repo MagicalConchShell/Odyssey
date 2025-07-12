@@ -1,31 +1,40 @@
-import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft } from 'lucide-react'
-import { ClaudeMdFile } from './types/electron'
+import {useState, useEffect, useCallback} from 'react'
+import {ArrowLeft} from 'lucide-react'
+import {ClaudeMdFile} from './types/electron'
 
 // Import components
-import { ClaudeCodeSession, type Session } from './components/ClaudeCodeSession'
-import { Settings } from './components/Settings'
-import { UsageDashboard } from './components/UsageDashboard'
-import { MCPManager } from './components/MCPManager'
-import { WelcomeScreen } from './components/WelcomeScreen'
-import { Topbar } from './components/Topbar'
-import { ThemeProvider } from './components/theme-provider'
-import { MarkdownEditor } from './components/MarkdownEditor'
-import { ClaudeFileEditor } from './components/ClaudeFileEditor'
+import {ProjectWorkspace} from './components/ProjectWorkspace'
+import {type Project} from './lib/projectState'
+import {ProjectStateProvider} from './components/ProjectStateProvider'
+import {Settings} from './components/Settings'
+import {UsageDashboard} from './components/UsageDashboard'
+import {MCPManager} from './components/MCPManager'
+import {WelcomeScreen} from './components/WelcomeScreen'
+import {Topbar} from './components/Topbar'
+import {ThemeProvider} from './components/theme-provider'
+import {MarkdownEditor} from './components/MarkdownEditor'
+import {ClaudeFileEditor} from './components/ClaudeFileEditor'
 
-type View = "welcome" | "settings" | "usage-dashboard" | "mcp" | "claude-session" | "editor" | "claude-editor" | "claude-file-editor"
+type View =
+  "welcome"
+  | "settings"
+  | "usage-dashboard"
+  | "mcp"
+  | "project-workspace"
+  | "editor"
+  | "claude-editor"
+  | "claude-file-editor"
 
-function App(){
+function App() {
   const [view, setView] = useState<View>("welcome")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showNFO, setShowNFO] = useState(false)
   const [platform, setPlatform] = useState<string>('unknown')
-  
-  // Claude session state
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+
+  // Project workspace state
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
-  
+
   // CLAUDE.md editor state
   const [selectedClaudeMdFile] = useState<ClaudeMdFile | null>(null)
 
@@ -68,7 +77,7 @@ function App(){
       try {
         setLoading(true)
         setError(null)
-        
+
         // Check if electronAPI is available
         if (!window.electronAPI) {
           throw new Error('electronAPI not available - not running in Electron')
@@ -78,7 +87,7 @@ function App(){
         // Load data based on view
         // Projects view data is handled by ProjectList component
 
-        
+
       } catch (error) {
         console.error('Failed to load view data:', error)
         setError(error instanceof Error ? error.message : 'Unknown error')
@@ -92,11 +101,20 @@ function App(){
 
   // Move useCallback hooks to component top level to fix React Error #310
   const handleSelectProject = useCallback((projectPath: string) => {
-    setSelectedSession(null)
+    setSelectedProject(null)
     setSelectedProjectPath(projectPath)
-    setView("claude-session")
+    setView("project-workspace")
   }, [])
 
+  const handleProjectSelect = useCallback((project: Project) => {
+    setSelectedProject(project)
+    setSelectedProjectPath(project.path)
+    setView("project-workspace")
+  }, [])
+
+  const handleNewProject = useCallback(() => {
+    setView("welcome")
+  }, [])
 
 
   const renderCurrentView = () => {
@@ -120,8 +138,8 @@ function App(){
     switch (view) {
       case "welcome":
         return renderWelcomeView()
-      case "claude-session":
-        return renderClaudeSessionView()
+      case "project-workspace":
+        return renderProjectWorkspaceView()
       case "settings":
         return renderSettingsView()
       case "usage-dashboard":
@@ -147,26 +165,27 @@ function App(){
   )
 
 
-
-
-  const renderClaudeSessionView = () => (
-    <ClaudeCodeSession
-      session={selectedSession || undefined}
-      initialProjectPath={selectedProjectPath}
-      onBack={() => setView("welcome")}
-    />
+  const renderProjectWorkspaceView = () => (
+    <ProjectStateProvider>
+      <ProjectWorkspace
+        project={selectedProject || undefined}
+        initialProjectPath={selectedProjectPath}
+        onProjectSelect={handleProjectSelect}
+        onNewProject={handleNewProject}
+      />
+    </ProjectStateProvider>
   )
 
   const renderSettingsView = () => (
-    <Settings onBack={() => setView("welcome")} />
+    <Settings onBack={() => setView("welcome")}/>
   )
 
   const renderUsageView = () => (
-    <UsageDashboard onBack={() => setView("welcome")} />
+    <UsageDashboard onBack={() => setView("welcome")}/>
   )
 
   const renderMCPView = () => (
-    <MCPManager onBack={() => setView("welcome")} />
+    <MCPManager onBack={() => setView("welcome")}/>
   )
 
   const renderEditorView = () => (
@@ -177,15 +196,15 @@ function App(){
             onClick={() => setView("welcome")}
             className="mb-4 px-3 py-2 text-sm bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors flex items-center"
           >
-            <ArrowLeft className="mr-2 h-4 w-4" />
+            <ArrowLeft className="mr-2 h-4 w-4"/>
             Back to Home
           </button>
           <h1 className="text-3xl font-bold">CLAUDE.md Editor</h1>
           <p className="text-muted-foreground">Edit your CLAUDE.md files</p>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div 
+          <div
             className="p-6 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
             onClick={() => setView("claude-editor")}
           >
@@ -194,8 +213,8 @@ function App(){
               Edit your global Claude Code system prompt (~/.claude/CLAUDE.md)
             </p>
           </div>
-          
-          <div 
+
+          <div
             className="p-6 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
             onClick={() => setView("welcome")}
           >
@@ -210,7 +229,7 @@ function App(){
   )
 
   const renderClaudeEditorView = () => (
-    <MarkdownEditor onBack={() => setView("editor")} />
+    <MarkdownEditor onBack={() => setView("editor")}/>
   )
 
   const renderClaudeFileEditorView = () => {
@@ -233,9 +252,9 @@ function App(){
     }
 
     return (
-      <ClaudeFileEditor 
-        file={selectedClaudeMdFile} 
-        onBack={() => setView("welcome")} 
+      <ClaudeFileEditor
+        file={selectedClaudeMdFile}
+        onBack={() => setView("welcome")}
       />
     )
   }
@@ -245,35 +264,15 @@ function App(){
       <div className="h-screen bg-background flex flex-col">
         {/* Topbar */}
         <Topbar
-          onInfoClick={() => setShowNFO(true)}
+          onSettingsClick={() => setView("settings")}
           platform={platform}
         />
-        
+
         {/* Main Content */}
         <div className="flex-1 overflow-y-auto">
           {renderCurrentView()}
         </div>
-        
-        {/* NFO Credits Modal - placeholder for now */}
-        {showNFO && (
-          <div 
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-            onClick={() => setShowNFO(false)}
-          >
-            <div className="bg-background p-6 rounded-lg max-w-md mx-4">
-              <h2 className="text-xl font-bold mb-4">About Odyssey</h2>
-              <p className="text-muted-foreground mb-4">
-                A powerful GUI for Claude Code built with Electron and React.
-              </p>
-              <button 
-                onClick={() => setShowNFO(false)}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
+
       </div>
     </ThemeProvider>
   )

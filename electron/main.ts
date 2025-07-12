@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { join } from 'path';
 import { dbManager } from './database.js';
 import { usageDataCache } from './usage-cache.js';
-import { setupAllHandlers, cleanupHandlers, cleanupAllProcesses } from './handlers/index.js';
+import { setupAllHandlers, cleanupHandlers } from './handlers/index.js';
 let mainWindow: BrowserWindow;
 
 /**
@@ -125,8 +125,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   console.log('🚪 Application is shutting down, cleaning up resources...');
 
-  // Clean up all active processes
-  cleanupAllProcesses();
+  // Clean up all active processes (handled by individual handlers)
 
   // Clean up database connection
   dbManager.close();

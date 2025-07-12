@@ -59,6 +59,20 @@ declare global {
       openExternal: (url: string) => Promise<ApiResponse<void>>;
       captureWebviewScreenshot: (selector: string) => Promise<ScreenshotResponse>;
 
+      // Terminal handlers
+      terminal: {
+        create: (workingDirectory: string, shell?: string) => Promise<ApiResponse<{ sessionId: string }>>;
+        write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
+        resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
+        close: (sessionId: string) => Promise<ApiResponse<void>>;
+        info: (sessionId: string) => Promise<ApiResponse<any>>;
+        list: () => Promise<ApiResponse<any[]>>;
+      };
+
+      // Event listeners
+      on?: (channel: string, listener: (...args: any[]) => void) => void;
+      removeListener?: (channel: string, listener: (...args: any[]) => void) => void;
+
       // Claude CLI handlers
       claudeCli: {
         getBinaryPath: () => Promise<ApiResponse<string | null>>;
@@ -71,6 +85,7 @@ declare global {
       fileSystem: {
         readFile: (filePath: string) => Promise<FileResponse>;
         writeFile: (filePath: string, content: string) => Promise<FileResponse>;
+        readDirectory: (dirPath: string) => Promise<ApiResponse<any[]>>;
         getSystemPrompt: () => Promise<FileResponse>;
         saveSystemPrompt: (content: string) => Promise<FileResponse>;
         findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;

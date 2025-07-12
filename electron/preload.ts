@@ -33,6 +33,16 @@ export interface IElectronAPI {
   openExternal: (url: string) => Promise<ApiResponse<void>>;
   captureWebviewScreenshot: (selector: string) => Promise<ScreenshotResponse>;
 
+  // Terminal handlers
+  terminal: {
+    create: (workingDirectory: string, shell?: string) => Promise<ApiResponse<{ sessionId: string }>>;
+    write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
+    resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
+    close: (sessionId: string) => Promise<ApiResponse<void>>;
+    info: (sessionId: string) => Promise<ApiResponse<{ isActive: boolean; workingDirectory: string; shell: string }>>;
+    list: () => Promise<ApiResponse<string[]>>;
+  };
+
   // Claude CLI handlers
   claudeCli: {
     getBinaryPath: () => Promise<ApiResponse<string | null>>;
@@ -45,12 +55,17 @@ export interface IElectronAPI {
   fileSystem: {
     readFile: (filePath: string) => Promise<FileResponse>;
     writeFile: (filePath: string, content: string) => Promise<FileResponse>;
+    readDirectory: (dirPath: string) => Promise<ApiResponse<any[]>>;
     getSystemPrompt: () => Promise<FileResponse>;
     saveSystemPrompt: (content: string) => Promise<FileResponse>;
     findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
     readClaudeMdFile: (filePath: string) => Promise<FileResponse>;
     saveClaudeMdFile: (filePath: string, content: string) => Promise<FileResponse>;
   };
+
+  // Event listeners
+  on?: (channel: string, listener: (...args: any[]) => void) => void;
+  removeListener?: (channel: string, listener: (...args: any[]) => void) => void;
 
   // Settings handlers
   settings: {
@@ -70,13 +85,6 @@ export interface IElectronAPI {
     serve: () => Promise<McpResponse>;
   };
 
-  // Claude Code session handlers
-  claudeCodeSession: {
-    execute: (projectPath: string, prompt: string, model?: string) => Promise<ApiResponse<{ sessionId: string }>>;
-    resume: (projectPath: string, sessionId: string, prompt: string, model?: string) => Promise<ApiResponse<void>>;
-    cancel: (sessionId?: string) => Promise<ApiResponse<void>>;
-    loadHistory: (sessionId: string, projectId: string) => Promise<ApiResponse<any[]>>;
-  };
 
   // Usage analytics handlers
   usage: {
@@ -136,6 +144,16 @@ const electronAPI: IElectronAPI = {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   captureWebviewScreenshot: (selector) => ipcRenderer.invoke('capture-webview-screenshot', selector),
 
+  // Terminal handlers
+  terminal: {
+    create: (workingDirectory, shell) => ipcRenderer.invoke('terminal:create', workingDirectory, shell),
+    write: (sessionId, data) => ipcRenderer.invoke('terminal:write', sessionId, data),
+    resize: (sessionId, cols, rows) => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
+    close: (sessionId) => ipcRenderer.invoke('terminal:close', sessionId),
+    info: (sessionId) => ipcRenderer.invoke('terminal:info', sessionId),
+    list: () => ipcRenderer.invoke('terminal:list'),
+  },
+
   // Claude CLI handlers
   claudeCli: {
     getBinaryPath: () => ipcRenderer.invoke('get-claude-binary-path'),
@@ -148,12 +166,17 @@ const electronAPI: IElectronAPI = {
   fileSystem: {
     readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
     writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
+    readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
     getSystemPrompt: () => ipcRenderer.invoke('get-system-prompt'),
     saveSystemPrompt: (content) => ipcRenderer.invoke('save-system-prompt', content),
     findClaudeMdFiles: (directory) => ipcRenderer.invoke('find-claude-md-files', directory),
     readClaudeMdFile: (filePath) => ipcRenderer.invoke('read-claude-md-file', filePath),
     saveClaudeMdFile: (filePath, content) => ipcRenderer.invoke('save-claude-md-file', filePath, content),
   },
+
+  // Event listeners
+  on: (channel, listener) => ipcRenderer.on(channel, listener),
+  removeListener: (channel, listener) => ipcRenderer.removeListener(channel, listener),
 
   // Settings handlers
   settings: {
@@ -173,13 +196,6 @@ const electronAPI: IElectronAPI = {
     serve: () => ipcRenderer.invoke('mcp-serve'),
   },
 
-  // Claude Code session handlers
-  claudeCodeSession: {
-    execute: (projectPath, prompt, model) => ipcRenderer.invoke('execute-claude-code', projectPath, prompt, model),
-    resume: (projectPath, sessionId, prompt, model) => ipcRenderer.invoke('resume-claude-code', projectPath, sessionId, prompt, model),
-    cancel: (sessionId) => ipcRenderer.invoke('cancel-claude-execution', sessionId),
-    loadHistory: (sessionId, projectId) => ipcRenderer.invoke('load-session-history', sessionId, projectId),
-  },
 
   // Usage analytics handlers
   usage: {

@@ -24,7 +24,7 @@ interface ClaudeProjectImportCandidate {
 
 interface WelcomeScreenProps {
   onSelectProject: (projectPath: string) => void
-  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'claude-session' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
+  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
   className?: string
 }
 
@@ -41,7 +41,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const { toast, showSuccess, showError } = useToast()
 
   // Handle navigation to different app views
-  const handleNavigate = (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'claude-session' | 'editor' | 'claude-editor' | 'claude-file-editor') => {
+  const handleNavigate = (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => {
     onNavigate(view)
   }
 

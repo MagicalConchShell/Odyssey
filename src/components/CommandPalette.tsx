@@ -39,7 +39,7 @@ interface Project {
 }
 
 interface CommandPaletteProps {
-  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'claude-session' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
+  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
   onSelectProject: (projectPath: string) => void
   onOpenFolder: () => void
   onImportProjects: () => void
