@@ -18,7 +18,7 @@ import type {
 } from './types/git-checkpoint.js';
 
 /**
- * Git风格的检查点存储系统
+ * Git-style checkpoint storage system
  */
 export class GitCheckpointStorage implements GitCheckpointSystem {
   private baseDir: string;
@@ -49,7 +49,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
   }
 
   /**
-   * 创建检查点
+   * Create checkpoint
    */
   async createCheckpoint(projectPath: string, description?: string, author?: string): Promise<string> {
     const startTime = Date.now();
@@ -58,18 +58,18 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
       const projectHash = this.hashProjectPath(projectPath);
       const objectStore = await this.initStorage(projectHash);
 
-      // 构建目录树
+      // Build directory tree
       const treeBuilder = new DirectoryTreeBuilder(objectStore, this.ignorePatterns, this.maxFileSize);
       const treeHash = await treeBuilder.buildTree(projectPath);
 
-      // 获取当前HEAD作为父Commit
+      // Get current HEAD as parent Commit
       let parents: string[] = [];
       const headCommitHash = await this.resolveRef(projectHash, 'HEAD');
       if (headCommitHash) {
         parents.push(headCommitHash);
       }
 
-      // 创建commit对象
+      // Create commit object
       const commitHash = await objectStore.storeCommit({
         tree: treeHash,
         parents: parents,

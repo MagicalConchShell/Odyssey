@@ -1,6 +1,6 @@
 /**
  * Utility functions for Claude stream message processing and validation.
- * Extracted from ClaudeCodeSession for better maintainability.
+ * Shared utilities for Claude AI interaction components.
  */
 
 import { ClaudeStreamMessage } from '../types/claude-stream'
@@ -156,7 +156,7 @@ export const validateAndNormalizeMessage = (data: string, messageId?: string): C
     
     return normalizedMessage
   } catch (error) {
-    console.error('[ClaudeCodeSession] Message validation failed:', {
+    console.error('[validateAndNormalizeMessage] Message validation failed:', {
       error: error instanceof Error ? error.message : 'Unknown error',
       data: data.substring(0, 200) + (data.length > 200 ? '...' : '')
     })

@@ -48,7 +48,7 @@ export const TerminalWelcome: React.FC<TerminalWelcomeProps> = ({
       icon: <Sparkles className="h-8 w-8" />,
       color: 'bg-blue-500',
       features: ['Multimodal Input', 'Code Analysis', 'Documentation', 'Planning'],
-      status: 'coming-soon'
+      status: 'available' // Changed from 'coming-soon' to 'available'
     }
   ]
 

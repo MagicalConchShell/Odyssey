@@ -35,7 +35,7 @@ interface RealTerminalProps {
 
 export const RealTerminal: React.FC<RealTerminalProps> = ({
   sessionId,
-  project,
+  project: _project,
   projectPath,
   selectedAIModel,
   onTerminalReady,
@@ -117,23 +117,9 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
       // Fit terminal to container
       fitAddon.fit()
 
-      // Show welcome message
-      terminal.writeln('\x1b[1;36m╭─────────────────────────────────────────╮\x1b[0m')
-      terminal.writeln('\x1b[1;36m│             Odyssey Terminal            │\x1b[0m')
-      terminal.writeln('\x1b[1;36m╰─────────────────────────────────────────╯\x1b[0m')
-      terminal.writeln('')
-      
-      if (project) {
-        terminal.writeln(`\x1b[1;32mProject:\x1b[0m ${project.name}`)
-        terminal.writeln(`\x1b[1;32mPath:\x1b[0m ${projectPath}`)
-      }
-      
-      if (selectedAIModel) {
-        terminal.writeln(`\x1b[1;35mAI Model:\x1b[0m ${selectedAIModel}`)
-      }
-      
-      terminal.writeln('')
-      terminal.writeln('\x1b[33mConnecting to terminal session...\x1b[0m')
+      // Basic terminal setup with minimal prompt
+      terminal.writeln('Welcome to Odyssey Terminal')
+      terminal.write('$ ')
 
       setIsConnected(true)
       onTerminalReady?.()
@@ -158,8 +144,12 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
   useEffect(() => {
     if (!isConnected || !xtermRef.current || sessionId) return
 
-    const createSession = async () => {
+    const createSession = async (retryCount = 0) => {
+      const maxRetries = 3
+      
       try {
+        // Silent retry - no output needed
+        
         const result = await window.electronAPI.terminal.create(projectPath)
         
         if (result.success && result.data) {
@@ -174,44 +164,92 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
 
           const handleTerminalExit = (code: number) => {
             if (xtermRef.current) {
-              xtermRef.current.writeln('')
-              xtermRef.current.writeln(`\x1b[33mProcess exited with code ${code}\x1b[0m`)
+              if (code !== 0) {
+                xtermRef.current.writeln(`\r\nProcess exited with code ${code}`)
+              }
+              // Show prompt for continued use
+              xtermRef.current.write('\r\n$ ')
             }
-            onTerminalExit?.()
+            // Don't call onTerminalExit immediately, let user continue using terminal
           }
 
           // Listen for terminal events
           window.electronAPI.on?.(`terminal-data-${newSessionId}`, handleTerminalData)
           window.electronAPI.on?.(`terminal-exit-${newSessionId}`, handleTerminalExit)
 
-          // Handle terminal input
+          // Handle terminal input with echo for interactive use
           if (xtermRef.current) {
             xtermRef.current.onData((data) => {
+              // Send data to backend terminal
               window.electronAPI.terminal.write(newSessionId, data)
+              
+              // Local echo for immediate feedback if needed
+              // (Backend terminal should handle echo, but this ensures responsiveness)
             })
           }
 
-          // Auto-start AI model if selected
-          if (selectedAIModel === 'claude-code') {
-            // Give a moment for the shell to initialize
-            setTimeout(() => {
-              window.electronAPI.terminal.write(newSessionId, 'claude\r')
-            }, 1000)
+          // AI command execution with user-visible process
+          if (selectedAIModel) {
+            const aiCommands = {
+              'claude-code': 'claude',
+              'gemini': 'gemini'
+            }
+            
+            const command = aiCommands[selectedAIModel]
+            if (command) {
+              // Show the command being executed
+              setTimeout(async () => {
+                try {
+                  if (xtermRef.current) {
+                    xtermRef.current.writeln('\r\nStarting AI session...')
+                  }
+                  
+                  // Change to project directory
+                  await window.electronAPI.terminal.write(newSessionId, `cd "${projectPath}"\r`)
+                  
+                  // Brief delay for directory change
+                  await new Promise(resolve => setTimeout(resolve, 500))
+                  
+                  // Show the command and execute it
+                  if (xtermRef.current) {
+                    xtermRef.current.write(`$ ${command}\r`)
+                  }
+                  await window.electronAPI.terminal.write(newSessionId, `${command}\r`)
+                  
+                } catch (error) {
+                  console.error(`Failed to start ${selectedAIModel}:`, error)
+                  if (xtermRef.current) {
+                    xtermRef.current.writeln(`\r\nError starting ${selectedAIModel}`)
+                    xtermRef.current.write('$ ')
+                  }
+                }
+              }, 1000)
+            }
           }
 
-          if (xtermRef.current) {
-            xtermRef.current.writeln('\x1b[32mTerminal session created successfully!\x1b[0m')
-            xtermRef.current.writeln('')
+          // Initialize shell prompt for terminal session
+          if (xtermRef.current && !selectedAIModel) {
+            // Show ready prompt if no AI model selected
+            setTimeout(() => {
+              if (xtermRef.current) {
+                xtermRef.current.writeln('\r\nTerminal ready. You can start typing commands.')
+                xtermRef.current.write('$ ')
+              }
+            }, 1000)
           }
 
         } else {
           throw new Error(result.error || 'Failed to create terminal session')
         }
       } catch (err) {
-        console.error('Failed to create terminal session:', err)
-        setError('Failed to create terminal session')
-        if (xtermRef.current) {
-          xtermRef.current.writeln('\x1b[31mFailed to create terminal session\x1b[0m')
+        console.error(`Terminal session creation attempt ${retryCount + 1} failed:`, err)
+        
+        // Simplified retry logic
+        if (retryCount < maxRetries) {
+          setTimeout(() => createSession(retryCount + 1), (retryCount + 1) * 2000)
+        } else {
+          // Final failure - minimal error display
+          setError(`Failed to create terminal session`)
         }
       }
     }
@@ -267,19 +305,38 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
 
   if (error) {
     return (
-      <div className={clsx("flex-1 flex items-center justify-center", className)}>
-        <div className="text-center space-y-4">
-          <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
-          <div>
-            <h3 className="text-lg font-semibold">Terminal Error</h3>
+      <div className={clsx("flex-1 flex items-center justify-center p-8", className)}>
+        <div className="text-center space-y-6 max-w-md">
+          <div className="space-y-2">
+            <AlertCircle className="h-16 w-16 text-destructive mx-auto" />
+            <h3 className="text-xl font-semibold">Terminal Error</h3>
             <p className="text-sm text-muted-foreground">{error}</p>
           </div>
-          <Button 
-            onClick={() => window.location.reload()} 
-            variant="outline"
-          >
-            Retry
-          </Button>
+          
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Button 
+                onClick={() => {
+                  setError(null)
+                  window.location.reload()
+                }} 
+                variant="default"
+                className="flex-1"
+              >
+                Restart Terminal
+              </Button>
+              <Button 
+                onClick={() => {
+                  setError(null)
+                  onTerminalExit?.()
+                }} 
+                variant="outline"
+                className="flex-1"
+              >
+                Go Back
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     )

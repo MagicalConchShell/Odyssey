@@ -9,12 +9,12 @@ const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 /**
- * Git风格的对象类型
+ * Git-style object types
  */
 export type GitObjectType = 'blob' | 'tree' | 'commit';
 
 /**
- * Git对象接口
+ * Git object interface
  */
 export interface GitObject {
   type: GitObjectType;
@@ -23,7 +23,7 @@ export interface GitObject {
 }
 
 /**
- * Blob对象 - 存储文件内容
+ * Blob object - stores file content
  */
 export interface BlobObject extends GitObject {
   type: 'blob';
@@ -31,18 +31,18 @@ export interface BlobObject extends GitObject {
 }
 
 /**
- * Tree条目 - 目录中的文件或子目录
+ * Tree entry - files or subdirectories in a directory
  */
 export interface TreeEntry {
-  name: string;           // 文件/目录名
-  mode: number;           // 文件权限
-  type: 'blob' | 'tree';  // 对象类型
-  hash: string;           // 对象哈希
-  size: number;           // 对象大小
+  name: string;           // File/directory name
+  mode: number;           // File permissions
+  type: 'blob' | 'tree';  // Object type
+  hash: string;           // Object hash
+  size: number;           // Object size
 }
 
 /**
- * Tree对象 - 存储目录结构
+ * Tree object - stores directory structure
  */
 export interface TreeObject extends GitObject {
   type: 'tree';
@@ -50,19 +50,19 @@ export interface TreeObject extends GitObject {
 }
 
 /**
- * Commit对象 - 存储检查点信息
+ * Commit object - stores checkpoint information
  */
 export interface CommitObject extends GitObject {
   type: 'commit';
-  tree: string;           // 根tree对象哈希
-  parents: string[];      // 父commit哈希列表
-  author: string;         // 作者
-  timestamp: string;      // 时间戳
-  message: string;        // 提交消息
+  tree: string;           // Root tree object hash
+  parents: string[];      // Parent commit hash list
+  author: string;         // Author
+  timestamp: string;      // Timestamp
+  message: string;        // Commit message
 }
 
 /**
- * 对象存储统计信息
+ * Object storage statistics
  */
 export interface ObjectStoreStats {
   totalObjects: number;
@@ -74,7 +74,7 @@ export interface ObjectStoreStats {
 }
 
 /**
- * Git风格的对象存储系统
+ * Git-style object storage system
  */
 export class GitObjectStore {
   private objectsDir: string;
@@ -88,125 +88,125 @@ export class GitObjectStore {
   }
 
   /**
-   * 初始化对象存储
+   * Initialize object storage
    */
   async init(): Promise<void> {
     await fs.mkdir(this.objectsDir, { recursive: true });
   }
 
   /**
-   * 清除对象缓存
+   * Clear object cache
    */
   private invalidateCache(): void {
     this.objectsCache = null;
   }
 
   /**
-   * 存储Blob对象
+   * Store Blob object
    */
   async storeBlob(content: Buffer): Promise<string> {
     const hash = this.hashContent('blob', content);
     const objectPath = this.getObjectPath(hash);
     
-    // 检查是否已存在
+    // Check if already exists
     try {
       await fs.access(objectPath);
       return hash;
     } catch {
-      // 不存在，需要创建
+      // Does not exist, need to create
     }
 
-    // 创建对象内容
+    // Create object content
     const header = Buffer.from(`blob ${content.length}\0`);
     const fullContent = Buffer.concat([header, content]);
     
-    // 压缩存储
+    // Compressed storage
     const compressed = await gzipAsync(fullContent, { level: this.compressionLevel });
     
-    // 原子写入
+    // Atomic write
     await this.atomicWrite(objectPath, compressed);
     
-    // 清除缓存因为添加了新对象
+    // Clear cache because new object was added
     this.invalidateCache();
     
     return hash;
   }
 
   /**
-   * 存储Tree对象
+   * Store Tree object
    */
   async storeTree(entries: TreeEntry[]): Promise<string> {
-    // 按名称排序条目（Git兼容）
+    // Sort entries by name (Git compatible)
     const sortedEntries = [...entries].sort((a, b) => {
-      // 目录名后面加'/'进行排序
+      // Add '/' after directory names for sorting
       const aName = a.type === 'tree' ? a.name + '/' : a.name;
       const bName = b.type === 'tree' ? b.name + '/' : b.name;
       return aName.localeCompare(bName);
     });
 
-    // 创建tree内容
+    // Create tree content
     const treeContent = this.serializeTreeEntries(sortedEntries);
     const hash = this.hashContent('tree', treeContent);
     const objectPath = this.getObjectPath(hash);
     
-    // 检查是否已存在
+    // Check if already exists
     try {
       await fs.access(objectPath);
       return hash;
     } catch {
-      // 不存在，需要创建
+      // Does not exist, need to create
     }
 
-    // 创建对象内容
+    // Create object content
     const header = Buffer.from(`tree ${treeContent.length}\0`);
     const fullContent = Buffer.concat([header, treeContent]);
     
-    // 压缩存储
+    // Compressed storage
     const compressed = await gzipAsync(fullContent, { level: this.compressionLevel });
     
-    // 原子写入
+    // Atomic write
     await this.atomicWrite(objectPath, compressed);
     
-    // 清除缓存因为添加了新对象
+    // Clear cache because new object was added
     this.invalidateCache();
     
     return hash;
   }
 
   /**
-   * 存储Commit对象
+   * Store Commit object
    */
   async storeCommit(commit: Omit<CommitObject, 'type' | 'hash' | 'size'>): Promise<string> {
     const commitContent = this.serializeCommit(commit);
     const hash = this.hashContent('commit', commitContent);
     const objectPath = this.getObjectPath(hash);
     
-    // 检查是否已存在
+    // Check if already exists
     try {
       await fs.access(objectPath);
       return hash;
     } catch {
-      // 不存在，需要创建
+      // Does not exist, need to create
     }
 
-    // 创建对象内容
+    // Create object content
     const header = Buffer.from(`commit ${commitContent.length}\0`);
     const fullContent = Buffer.concat([header, commitContent]);
     
-    // 压缩存储
+    // Compressed storage
     const compressed = await gzipAsync(fullContent, { level: this.compressionLevel });
     
-    // 原子写入
+    // Atomic write
     await this.atomicWrite(objectPath, compressed);
     
-    // 清除缓存因为添加了新对象
+    // Clear cache because new object was added
     this.invalidateCache();
     
     return hash;
   }
 
   /**
-   * 读取对象
+   * Read object
    */
   async readObject(hash: string): Promise<GitObject | null> {
     const objectPath = this.getObjectPath(hash);
@@ -215,7 +215,7 @@ export class GitObjectStore {
       const compressed = await fs.readFile(objectPath);
       const content = await gunzipAsync(compressed);
       
-      // 解析对象头部
+      // Parse object header
       const nullIndex = content.indexOf(0);
       if (nullIndex === -1) {
         throw new Error('Invalid object format');
@@ -268,7 +268,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 检查对象是否存在
+   * Check if object exists
    */
   async hasObject(hash: string): Promise<boolean> {
     const objectPath = this.getObjectPath(hash);
@@ -281,7 +281,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 列出所有对象
+   * List all objects
    */
   async listObjects(): Promise<string[]> {
     // Check cache first
@@ -308,7 +308,7 @@ export class GitObjectStore {
         }
       }
     } catch (error) {
-      // 目录不存在或为空
+      // Directory does not exist or is empty
     }
     
     // Update cache
@@ -321,7 +321,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 获取存储统计信息
+   * Get storage statistics
    */
   async getStats(): Promise<ObjectStoreStats> {
     const objects = await this.listObjects();
@@ -348,7 +348,7 @@ export class GitObjectStore {
             break;
         }
         
-        // 计算压缩后的大小
+        // Calculate compressed size
         const objectPath = this.getObjectPath(hash);
         const stat = await fs.stat(objectPath);
         totalSize += stat.size;
@@ -366,7 +366,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 删除对象
+   * Delete object
    */
   async deleteObject(hash: string): Promise<void> {
     const objectPath = this.getObjectPath(hash);
@@ -374,7 +374,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 计算内容哈希
+   * Calculate content hash
    */
   private hashContent(type: GitObjectType, content: Buffer): string {
     const header = Buffer.from(`${type} ${content.length}\0`);
@@ -383,7 +383,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 获取对象文件路径
+   * Get object file path
    */
   private getObjectPath(hash: string): string {
     const dir = hash.substring(0, 2);
@@ -392,13 +392,13 @@ export class GitObjectStore {
   }
 
   /**
-   * 序列化Tree条目
+   * Serialize Tree entries
    */
   private serializeTreeEntries(entries: TreeEntry[]): Buffer {
     const buffers: Buffer[] = [];
     
     for (const entry of entries) {
-      // 模式 + 空格 + 名称 + 空格 + 大小 + NULL + 哈希(二进制)
+      // Mode + space + name + space + size + NULL + hash(binary)
       const mode = entry.mode.toString(8);
       const modeBuffer = Buffer.from(mode + ' ' + entry.name + ' ' + entry.size + '\0');
       const hashBuffer = Buffer.from(entry.hash, 'hex');
@@ -410,33 +410,33 @@ export class GitObjectStore {
   }
 
   /**
-   * 解析Tree条目
+   * Parse Tree entries
    */
   private parseTreeEntries(content: Buffer): TreeEntry[] {
     const entries: TreeEntry[] = [];
     let offset = 0;
     
     while (offset < content.length) {
-      // 找到第一个空格（模式结束）
+      // Find first space (end of mode)
       const spaceIndex = content.indexOf(32, offset); // 32 = ' '
       if (spaceIndex === -1) break;
       
       const mode = parseInt(content.subarray(offset, spaceIndex).toString('utf8'), 8);
       
-      // 找到第二个空格（名称结束）
+      // Find second space (end of name)
       const secondSpaceIndex = content.indexOf(32, spaceIndex + 1);
       if (secondSpaceIndex === -1) {
-        // 旧格式兼容：如果没有第二个空格，使用NULL字符作为名称结束
+        // Legacy format compatibility: if no second space, use NULL character as name end
         const nullIndex = content.indexOf(0, spaceIndex + 1);
         if (nullIndex === -1) break;
         
         const name = content.subarray(spaceIndex + 1, nullIndex).toString('utf8');
         
-        // 读取哈希（32字节）
+        // Read hash (32 bytes)
         if (nullIndex + 32 > content.length) break;
         const hash = content.subarray(nullIndex + 1, nullIndex + 33).toString('hex');
         
-        // 根据模式确定类型
+        // Determine type based on mode
         const type = (mode & 0o170000) === 0o040000 ? 'tree' : 'blob';
         
         entries.push({
@@ -444,17 +444,17 @@ export class GitObjectStore {
           mode,
           type,
           hash,
-          size: 0 // 旧格式默认为0
+          size: 0 // Legacy format defaults to 0
         });
         
         offset = nullIndex + 33;
         continue;
       }
       
-      // 新格式：模式 + 空格 + 名称 + 空格 + 大小 + NULL + 哈希
+      // New format: mode + space + name + space + size + NULL + hash
       const name = content.subarray(spaceIndex + 1, secondSpaceIndex).toString('utf8');
       
-      // 找到NULL字符（大小结束）
+      // Find NULL character (end of size)
       const nullIndex = content.indexOf(0, secondSpaceIndex + 1);
       if (nullIndex === -1) break;
       
@@ -482,7 +482,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 序列化Commit对象
+   * Serialize Commit object
    */
   private serializeCommit(commit: Omit<CommitObject, 'type' | 'hash' | 'size'>): Buffer {
     let content = `tree ${commit.tree}\n`;
@@ -501,7 +501,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 解析Commit对象
+   * Parse Commit object
    */
   private parseCommit(content: Buffer): Omit<CommitObject, 'type' | 'hash' | 'size'> {
     const text = content.toString('utf8');
@@ -537,7 +537,7 @@ export class GitObjectStore {
   }
 
   /**
-   * 原子写入文件
+   * Atomic file write
    */
   private async atomicWrite(filePath: string, content: Buffer): Promise<void> {
     const dir = dirname(filePath);
@@ -549,11 +549,11 @@ export class GitObjectStore {
       await fs.writeFile(tempPath, content);
       await fs.rename(tempPath, filePath);
     } catch (error) {
-      // 清理临时文件
+      // Clean up temporary file
       try {
         await fs.unlink(tempPath);
       } catch {
-        // 忽略清理错误
+        // Ignore cleanup errors
       }
       throw error;
     }
@@ -561,7 +561,7 @@ export class GitObjectStore {
 }
 
 /**
- * 目录扫描器 - 构建Tree对象
+ * Directory scanner - build Tree objects
  */
 export class DirectoryTreeBuilder {
   private objectStore: GitObjectStore;
@@ -579,7 +579,7 @@ export class DirectoryTreeBuilder {
   }
 
   /**
-   * 构建目录树
+   * Build directory tree
    */
   async buildTree(directoryPath: string): Promise<string> {
     const entries = await this.scanDirectory(directoryPath);
@@ -587,7 +587,7 @@ export class DirectoryTreeBuilder {
   }
 
   /**
-   * 扫描目录
+   * Scan directory
    */
   private async scanDirectory(dirPath: string): Promise<TreeEntry[]> {
     const entries: TreeEntry[] = [];
@@ -599,7 +599,7 @@ export class DirectoryTreeBuilder {
         const itemPath = join(dirPath, item.name);
         const relativePath = relative(dirPath, itemPath);
         
-        // 检查是否应该忽略
+        // Check if should be ignored
         if (this.shouldIgnore(relativePath)) {
           continue;
         }
@@ -607,7 +607,7 @@ export class DirectoryTreeBuilder {
         if (item.isFile()) {
           const stat = await fs.stat(itemPath);
           
-          // 跳过过大的文件
+          // Skip oversized files
           if (stat.size > this.maxFileSize) {
             console.warn(`Skipping large file: ${relativePath} (${stat.size} bytes)`);
             continue;

@@ -117,7 +117,7 @@ export function TimelineSidebar({
   // Notify width changes
   useEffect(() => {
     if (onSidebarWidthChange) {
-      // 计算当前sidebar宽度
+      // Calculate current sidebar width
       let width = 0
       if (!isSmallScreen) {
         // Use actual width on large screens
@@ -729,7 +729,7 @@ export function TimelineSidebar({
               />
             </div>
             
-            {/* 错误信息显示 */}
+            {/* Error message display */}
             {createError && (
               <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
                 {createError}

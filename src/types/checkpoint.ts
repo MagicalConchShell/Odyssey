@@ -1,5 +1,5 @@
-// Git风格检查点系统类型定义
-// 导入Git检查点类型
+// Git-style checkpoint system type definitions
+// Import Git checkpoint types
 
 export type {
   GitCheckpointInfo,
@@ -15,7 +15,7 @@ export type {
   GitBranch
 } from '../../electron/handlers/types';
 
-// 重新导出为旧的接口名称以保持兼容性
+// Re-export as old interface names for compatibility
 import type {
   GitCheckpointInfo as _GitCheckpointInfo,
   CheckpointDiff as _CheckpointDiff,
@@ -23,46 +23,46 @@ import type {
   BranchInfo as _BranchInfo
 } from '../../electron/types/git-checkpoint';
 
-// 兼容性别名
+// Compatibility aliases
 export type CheckpointInfo = _GitCheckpointInfo;
 export type BranchInfo = _BranchInfo;
 export type FileSnapshot = _FileRestoreInfo;
 
-// 时间线树节点（用于Git风格的时间线可视化）
+// Timeline tree node (for Git-style timeline visualization)
 export interface TimelineTreeNode {
-  checkpoint: _GitCheckpointInfo;      // 检查点信息
-  columnIndex: number;                // 水平列索引（分支列）
-  rowIndex: number;                   // 垂直行索引（时间顺序）
-  branchColor: string;               // 分支颜色
-  isCurrent: boolean;                // 是否为当前检查点
-  isMergeCommit: boolean;            // 是否为合并提交
-  isBranchPoint: boolean;            // 是否为分支点
-  branchName: string;                // 所属分支名称
+  checkpoint: _GitCheckpointInfo;      // Checkpoint information
+  columnIndex: number;                // Horizontal column index (branch column)
+  rowIndex: number;                   // Vertical row index (time order)
+  branchColor: string;               // Branch color
+  isCurrent: boolean;                // Whether this is the current checkpoint
+  isMergeCommit: boolean;            // Whether this is a merge commit
+  isBranchPoint: boolean;            // Whether this is a branch point
+  branchName: string;                // Branch name this belongs to
 }
 
-// 连接线信息（用于绘制时间线连接）
+// Connection line information (for drawing timeline connections)
 export interface ConnectionLine {
-  from: { rowIndex: number; columnIndex: number };   // 起点坐标（行/列索引）
-  to: { rowIndex: number; columnIndex: number };     // 终点坐标（行/列索引）
-  type: 'direct' | 'branch' | 'merge'; // 连接类型
-  color: string;                    // 线条颜色
-  strokeWidth: number;              // 线条宽度
-  pathData?: string;                // SVG路径数据（用于曲线）
+  from: { rowIndex: number; columnIndex: number };   // Start coordinates (row/column index)
+  to: { rowIndex: number; columnIndex: number };     // End coordinates (row/column index)
+  type: 'direct' | 'branch' | 'merge'; // Connection type
+  color: string;                    // Line color
+  strokeWidth: number;              // Line width
+  pathData?: string;                // SVG path data (for curves)
 }
 
-// UI状态类型
+// UI state types
 export interface TimelineViewState {
-  selectedCheckpoint: string | null; // 选中的检查点哈希
-  hoveredCheckpoint: string | null;  // 悬停的检查点哈希
-  searchQuery: string;              // 搜索查询
-  sortOrder: 'newest' | 'oldest';   // 排序顺序
-  showDetails: boolean;             // 显示详细信息
+  selectedCheckpoint: string | null; // Selected checkpoint hash
+  hoveredCheckpoint: string | null;  // Hovered checkpoint hash
+  searchQuery: string;              // Search query
+  sortOrder: 'newest' | 'oldest';   // Sort order
+  showDetails: boolean;             // Show detailed information
 }
 
-// 检查点操作结果
+// Checkpoint operation result
 export interface CheckpointOperationResult {
   success: boolean;
-  checkpointId?: string; // 在这里可能仍然指 commit hash
+  checkpointId?: string; // May still refer to commit hash here
   error?: string;
   metrics?: {
     duration: number;
@@ -72,7 +72,7 @@ export interface CheckpointOperationResult {
   };
 }
 
-// 分支操作结果
+// Branch operation result
 export interface BranchOperationResult {
   success: boolean;
   branchName?: string;
@@ -86,7 +86,7 @@ export interface BranchOperationResult {
   };
 }
 
-// 分支状态信息
+// Branch state information
 export interface BranchState {
   currentBranch: string | null;
   isDetachedHead: boolean;
@@ -96,7 +96,7 @@ export interface BranchState {
   behind: number; // Commits behind base
 }
 
-// 合并操作结果
+// Merge operation result
 export interface MergeOperationResult {
   success: boolean;
   resultCommitHash?: string;
@@ -110,7 +110,7 @@ export interface MergeOperationResult {
   };
 }
 
-// 存储优化结果
+// Storage optimization result
 export interface StorageOptimizationResult {
   success: boolean;
   error?: string;
@@ -122,7 +122,7 @@ export interface StorageOptimizationResult {
   };
 }
 
-// 检查点系统API接口 (面向UI)
+// Checkpoint system API interface (UI-oriented)
 export interface CheckpointSystemAPI {
   createCheckpoint(projectPath: string, description?: string): Promise<CheckpointOperationResult>;
   checkout(projectPath: string, ref: string): Promise<CheckpointOperationResult>;
@@ -131,18 +131,18 @@ export interface CheckpointSystemAPI {
   getCheckpointDiff(projectPath: string, fromRef: string, toRef: string): Promise<_CheckpointDiff>;
   optimizeStorage(projectPath: string): Promise<StorageOptimizationResult>;
   
-  // 分支操作
+  // Branch operations
   createBranch(projectPath: string, branchName: string, startPoint?: string): Promise<BranchOperationResult>;
   switchBranch(projectPath: string, branchName: string): Promise<BranchOperationResult>;
   deleteBranch(projectPath: string, branchName: string): Promise<BranchOperationResult>;
   getBranchState(projectPath: string): Promise<BranchState>;
   
-  // 合并操作
+  // Merge operations
   mergeBranch(projectPath: string, sourceBranch: string, targetBranch: string): Promise<MergeOperationResult>;
   canMerge(projectPath: string, sourceBranch: string, targetBranch: string): Promise<boolean>;
 }
 
-// 分支名称验证规则
+// Branch name validation rules
 export interface BranchValidationRules {
   readonly MAX_LENGTH: number;
   readonly MIN_LENGTH: number;
@@ -150,14 +150,14 @@ export interface BranchValidationRules {
   readonly RESERVED_NAMES: string[];
 }
 
-// 分支名称验证结果
+// Branch name validation result
 export interface BranchValidationResult {
   isValid: boolean;
   error?: string;
   suggestions?: string[];
 }
 
-// 时间线导航上下文
+// Timeline navigation context
 export interface TimelineNavigationContext {
   currentCommit: string;
   parentCommits: string[];
@@ -167,7 +167,7 @@ export interface TimelineNavigationContext {
   canNavigateForward: boolean;
 }
 
-// 键盘快捷键配置
+// Keyboard shortcuts configuration
 export interface KeyboardShortcuts {
   navigateUp: string;
   navigateDown: string;
@@ -179,7 +179,7 @@ export interface KeyboardShortcuts {
   search: string;
 }
 
-// 性能度量
+// Performance metrics
 export interface PerformanceMetrics {
   renderTime: number;
   dataLoadTime: number;

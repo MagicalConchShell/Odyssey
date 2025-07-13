@@ -8,8 +8,8 @@ import { registerHandler } from './base-handler.js';
  */
 
 // AI Provider types
-export type AIProvider = 'anthropic' | 'openai' | 'local' | 'custom';
-export type AIModel = 'claude-sonnet' | 'claude-opus' | 'gpt-4' | 'gpt-3.5-turbo' | 'local-model';
+export type AIProvider = 'anthropic' | 'openai' | 'google' | 'local' | 'custom';
+export type AIModel = 'claude-sonnet' | 'claude-opus' | 'gpt-4' | 'gpt-3.5-turbo' | 'gemini-pro' | 'gemini-pro-vision' | 'local-model';
 
 // AI interaction types
 export interface AIInteractionRequest {
@@ -71,13 +71,6 @@ const aiSessions = new Map<string, {
   lastActiveAt: Date;
 }>();
 
-/**
- * Get the main window instance
- */
-// function getMainWindow(): BrowserWindow | null {
-//   const windows = BrowserWindow.getAllWindows();
-//   return windows.length > 0 ? windows[0] : null;
-// }
 
 /**
  * Generate unique session ID
@@ -86,47 +79,6 @@ function generateSessionId(): string {
   return `ai_session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-/**
- * Get AI provider configuration
- */
-// // function getProviderConfig(provider: AIProvider) {
-//   switch (provider) {
-//     case 'anthropic':
-//       return {
-//         name: 'Anthropic Claude',
-//         models: ['claude-sonnet', 'claude-opus'],
-//         executable: 'claude',
-//         supportsStreaming: true,
-//         supportsTools: true
-//       };
-//     case 'openai':
-//       return {
-//         name: 'OpenAI GPT',
-//         models: ['gpt-4', 'gpt-3.5-turbo'],
-//         executable: 'openai',
-//         supportsStreaming: true,
-//         supportsTools: true
-//       };
-//     case 'local':
-//       return {
-//         name: 'Local Model',
-//         models: ['local-model'],
-//         executable: 'local-ai',
-//         supportsStreaming: false,
-//         supportsTools: false
-//       };
-//     case 'custom':
-//       return {
-//         name: 'Custom Provider',
-//         models: [],
-//         executable: 'custom-ai',
-//         supportsStreaming: false,
-//         supportsTools: false
-//       };
-//     default:
-//       throw new Error(`Unsupported AI provider: ${provider}`);
-//   }
-// }
 
 /**
  * Start a new AI interaction session
@@ -156,17 +108,11 @@ async function startAISession(request: AIInteractionRequest): Promise<AIInteract
       case 'anthropic':
         response = await handleAnthropicRequest(request, sessionId);
         break;
-      case 'openai':
-        response = await handleOpenAIRequest(request, sessionId);
-        break;
-      case 'local':
-        response = await handleLocalAIRequest(request, sessionId);
-        break;
-      case 'custom':
-        response = await handleCustomAIRequest(request, sessionId);
+      case 'google':
+        response = await handleGoogleRequest(request, sessionId);
         break;
       default:
-        throw new Error(`Unsupported AI provider: ${request.provider}`);
+        throw new Error(`Unsupported AI provider: ${request.provider}. Supported providers: 'anthropic', 'google'`);
     }
     
     return {
@@ -217,17 +163,11 @@ async function resumeAISession(sessionId: string, request: AIInteractionRequest)
       case 'anthropic':
         response = await handleAnthropicRequest(request, sessionId);
         break;
-      case 'openai':
-        response = await handleOpenAIRequest(request, sessionId);
-        break;
-      case 'local':
-        response = await handleLocalAIRequest(request, sessionId);
-        break;
-      case 'custom':
-        response = await handleCustomAIRequest(request, sessionId);
+      case 'google':
+        response = await handleGoogleRequest(request, sessionId);
         break;
       default:
-        throw new Error(`Unsupported AI provider: ${session.provider}`);
+        throw new Error(`Unsupported AI provider: ${session.provider}. Supported providers: 'anthropic', 'google'`);
     }
     
     // Update conversation history with response
@@ -258,22 +198,14 @@ async function resumeAISession(sessionId: string, request: AIInteractionRequest)
  * Handle Anthropic (Claude) requests
  */
 async function handleAnthropicRequest(_request: AIInteractionRequest, _sessionId: string): Promise<AIInteractionResponse> {
-  const startTime = Date.now();
+  // const startTime = Date.now();
   
   try {
-    // For now, delegate to the existing Claude handler
-    // TODO: Implement direct Anthropic API integration
-    const result = await delegateToClaudeHandler(_request, _sessionId);
-    
+    // Direct Anthropic Claude integration would go here
+    // For now, return a placeholder indicating the integration is needed
     return {
-      success: true,
-      response: {
-        content: result.content || '',
-        tokens: result.tokens || { input: 0, output: 0, total: 0 },
-        model: _request.model,
-        provider: 'anthropic',
-        responseTime: Date.now() - startTime
-      }
+      success: false,
+      error: 'Anthropic Claude integration is not yet implemented. Please use the existing Claude handler.'
     };
   } catch (error) {
     return {
@@ -284,85 +216,34 @@ async function handleAnthropicRequest(_request: AIInteractionRequest, _sessionId
 }
 
 /**
- * Handle OpenAI requests
+ * Handle Google (Gemini) requests
  */
-async function handleOpenAIRequest(_request: AIInteractionRequest, _sessionId: string): Promise<AIInteractionResponse> {
+async function handleGoogleRequest(_request: AIInteractionRequest, _sessionId: string): Promise<AIInteractionResponse> {
   // const startTime = Date.now();
   
   try {
-    // TODO: Implement OpenAI API integration
-    throw new Error('OpenAI integration not yet implemented');
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'OpenAI request failed'
-    };
-  }
-}
-
-/**
- * Handle Local AI requests
- */
-async function handleLocalAIRequest(_request: AIInteractionRequest, _sessionId: string): Promise<AIInteractionResponse> {
-  // const startTime = Date.now();
-  
-  try {
-    // TODO: Implement local AI integration
-    throw new Error('Local AI integration not yet implemented');
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Local AI request failed'
-    };
-  }
-}
-
-/**
- * Handle Custom AI requests
- */
-async function handleCustomAIRequest(_request: AIInteractionRequest, _sessionId: string): Promise<AIInteractionResponse> {
-  // const startTime = Date.now();
-  
-  try {
-    // TODO: Implement custom AI integration
-    throw new Error('Custom AI integration not yet implemented');
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Custom AI request failed'
-    };
-  }
-}
-
-/**
- * Delegate to existing Claude handler (temporary)
- */
-async function delegateToClaudeHandler(_request: AIInteractionRequest, _sessionId: string): Promise<any> {
-  // TODO: This is a temporary bridge to the existing Claude handler
-  // In the future, this should be replaced with direct API calls
-  
-  // Note: executeClaudeCode doesn't exist in the Claude handler exports
-  // This is a placeholder implementation until we properly integrate
-  
-  // Convert our request to the Claude handler format
-  const model = _request.model === 'claude-sonnet' ? 'sonnet' : 'opus';
-  
-  try {
-    // Placeholder implementation - log the request details
-    console.log('Claude handler delegation:', {
-      projectPath: _request.projectPath,
-      prompt: _request.prompt,
-      model
-    });
+    // Google Gemini integration would go here
+    // This would include:
+    // 1. Setting up Google AI Studio or Vertex AI client
+    // 2. Formatting the request for Gemini API
+    // 3. Handling streaming responses if needed
+    // 4. Converting response to our standard format
     
-    // For now, return a placeholder response
     return {
-      content: 'AI interaction delegated successfully',
-      tokens: { input: 0, output: 0, total: 0 }    };
+      success: false,
+      error: 'Google Gemini integration is not yet implemented. This feature is coming soon.'
+    };
   } catch (error) {
-    throw error;
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Google Gemini request failed'
+    };
   }
 }
+
+
+
+
 
 /**
  * Cancel an AI session
