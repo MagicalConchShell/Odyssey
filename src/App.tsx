@@ -14,6 +14,7 @@ import {Topbar} from './components/Topbar'
 import {ThemeProvider} from './components/theme-provider'
 import {MarkdownEditor} from './components/MarkdownEditor'
 import {ClaudeFileEditor} from './components/ClaudeFileEditor'
+import {GlobalCommandOverlay} from './components/GlobalCommandOverlay'
 
 type View =
   "welcome"
@@ -30,6 +31,9 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [platform, setPlatform] = useState<string>('unknown')
+
+  // Global command overlay state
+  const [isCommandOverlayOpen, setIsCommandOverlayOpen] = useState(false)
 
   // Project workspace state
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
@@ -64,6 +68,23 @@ function App() {
       }
     }
     getPlatform()
+  }, [])
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Cmd+K (macOS) or Ctrl+K (Windows/Linux)
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault()
+        setIsCommandOverlayOpen(true)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
 
   // Load data based on current view
@@ -113,6 +134,34 @@ function App() {
   }, [])
 
   const handleNewProject = useCallback(() => {
+    setView("welcome")
+  }, [])
+
+  // Global command overlay handlers
+  const handleOpenCommandOverlay = useCallback(() => {
+    setIsCommandOverlayOpen(true)
+  }, [])
+
+  const handleCloseCommandOverlay = useCallback(() => {
+    setIsCommandOverlayOpen(false)
+  }, [])
+
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const response = await window.electronAPI.projectManagement.openFolder()
+      if (response.success && response.data) {
+        handleSelectProject(response.data.path)
+      } else {
+        console.warn('Failed to open folder:', response.error)
+      }
+    } catch (err) {
+      console.error('Failed to open folder:', err)
+    }
+  }, [handleSelectProject])
+
+  const handleImportProjects = useCallback(async () => {
+    // This would trigger the same import flow as in WelcomeScreen
+    // For now, navigate to welcome where the import functionality is available
     setView("welcome")
   }, [])
 
@@ -265,6 +314,8 @@ function App() {
         {/* Topbar */}
         <Topbar
           onSettingsClick={() => setView("settings")}
+          onCommandBarClick={handleOpenCommandOverlay}
+          currentView={view}
           platform={platform}
         />
 
@@ -273,6 +324,16 @@ function App() {
           {renderCurrentView()}
         </div>
 
+        {/* Global Command Overlay */}
+        <GlobalCommandOverlay
+          isOpen={isCommandOverlayOpen}
+          onClose={handleCloseCommandOverlay}
+          currentView={view}
+          onNavigate={setView}
+          onSelectProject={handleSelectProject}
+          onOpenFolder={handleOpenFolder}
+          onImportProjects={handleImportProjects}
+        />
       </div>
     </ThemeProvider>
   )

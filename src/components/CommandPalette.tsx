@@ -44,6 +44,7 @@ interface CommandPaletteProps {
   onOpenFolder: () => void
   onImportProjects: () => void
   onRefresh?: (refreshFunction: () => Promise<void>) => void
+  currentView?: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor'
   className?: string
 }
 
@@ -64,6 +65,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenFolder,
   onImportProjects,
   onRefresh,
+  currentView = 'welcome',
   className = ''
 }) => {
   const [projects, setProjects] = useState<Project[]>([])
@@ -118,6 +120,18 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   // Define all commands
   const commands: CommandItem[] = [
+    // Navigation Commands (context-aware)
+    ...(currentView !== 'welcome' ? [{
+      id: 'go-home',
+      label: 'Go to Home',
+      description: 'Return to the main screen',
+      icon: <FolderOpen className="h-4 w-4" />,
+      shortcut: '⌘H',
+      group: 'Navigation',
+      action: () => onNavigate('welcome'),
+      keywords: ['home', 'welcome', 'main', 'back']
+    }] : []),
+    
     // General Commands
     {
       id: 'settings',
@@ -234,7 +248,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   }, {} as Record<string, CommandItem[]>)
 
   // Define group order
-  const groupOrder = ['Project Management', 'Recent Projects', 'General', 'Help']
+  const groupOrder = ['Navigation', 'Project Management', 'Recent Projects', 'General', 'Help']
 
   return (
     <motion.div
