@@ -27,9 +27,8 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   selectedAIModel,
   className
 }) => {
-  const { 
-    terminalSessionId, 
-    setTerminalSessionId, 
+  const {
+    setTerminalSessionId,
     setTerminalMode, 
     setSelectedAIModel 
   } = useTerminal()
@@ -100,7 +99,6 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
             className="flex-1"
           >
             <RealTerminal
-              sessionId={terminalSessionId}
               project={project}
               projectPath={projectPath}
               selectedAIModel={selectedAIModel}

@@ -124,17 +124,3 @@ export function executeWithLineBuffer(config: ProcessConfig): Promise<{ code: nu
     })
   })
 }
-
-/**
- * Common error handling pattern for IPC handlers
- * @param operation - The async operation to execute
- * @returns Promise with success/error result structure
- */
-export async function handleIpcOperation<T>(operation: () => Promise<T>): Promise<{ success: boolean, data?: T, error?: string }> {
-  try {
-    const data = await operation()
-    return { success: true, data }
-  } catch (error: any) {
-    return { success: false, error: error.message }
-  }
-}

@@ -24,7 +24,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { Project } from '@/lib/projectState'
 
 interface RealTerminalProps {
-  sessionId: string | null
   project?: Project
   projectPath: string
   selectedAIModel: 'claude-code' | 'gemini' | null
@@ -34,7 +33,6 @@ interface RealTerminalProps {
 }
 
 export const RealTerminal: React.FC<RealTerminalProps> = ({
-  sessionId,
   project: _project,
   projectPath,
   selectedAIModel,
@@ -47,6 +45,7 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   
+  const [internalSessionId, setInternalSessionId] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSearchVisible, setIsSearchVisible] = useState(false)
@@ -78,12 +77,11 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
     brightWhite: '#f9f8f5'
   }
 
-  // Initialize terminal
+  // Initialize terminal UI
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return
 
     try {
-      // Create terminal instance
       const terminal = new XTerminal({
         theme: terminalTheme,
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
@@ -98,38 +96,29 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
         scrollback: 1000
       })
 
-      // Create addons
       const fitAddon = new FitAddon()
       const searchAddon = new SearchAddon()
 
-      // Load addons
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(searchAddon)
 
-      // Store references
       xtermRef.current = terminal
       fitAddonRef.current = fitAddon
       searchAddonRef.current = searchAddon
 
-      // Open terminal
       terminal.open(terminalRef.current)
-      
-      // Fit terminal to container
       fitAddon.fit()
-
-      // Basic terminal setup with minimal prompt
+      
       terminal.writeln('Welcome to Odyssey Terminal')
       terminal.write('$ ')
 
       setIsConnected(true)
       onTerminalReady?.()
-
     } catch (err) {
       console.error('Failed to initialize terminal:', err)
       setError('Failed to initialize terminal')
     }
 
-    // Cleanup function
     return () => {
       if (xtermRef.current) {
         xtermRef.current.dispose()
@@ -138,136 +127,111 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
         searchAddonRef.current = null
       }
     }
-  }, [terminalRef.current])
+  }, [onTerminalReady])
 
-  // Create terminal session
+  // Create backend terminal session
   useEffect(() => {
-    if (!isConnected || !xtermRef.current || sessionId) return
+    if (!isConnected || internalSessionId) return
 
-    const createSession = async (retryCount = 0) => {
-      const maxRetries = 3
-      
+    const createSession = async () => {
       try {
-        // Silent retry - no output needed
-        
         const result = await window.electronAPI.terminal.create(projectPath)
-        
         if (result.success && result.data) {
-          const newSessionId = result.data.sessionId
-          
-          // Setup terminal data listeners
-          const handleTerminalData = (data: string) => {
-            if (xtermRef.current) {
-              xtermRef.current.write(data)
-            }
-          }
-
-          const handleTerminalExit = (code: number) => {
-            if (xtermRef.current) {
-              if (code !== 0) {
-                xtermRef.current.writeln(`\r\nProcess exited with code ${code}`)
-              }
-              // Show prompt for continued use
-              xtermRef.current.write('\r\n$ ')
-            }
-            // Don't call onTerminalExit immediately, let user continue using terminal
-          }
-
-          // Listen for terminal events
-          window.electronAPI.on?.(`terminal-data-${newSessionId}`, handleTerminalData)
-          window.electronAPI.on?.(`terminal-exit-${newSessionId}`, handleTerminalExit)
-
-          // Handle terminal input with echo for interactive use
-          if (xtermRef.current) {
-            xtermRef.current.onData((data) => {
-              // Send data to backend terminal
-              window.electronAPI.terminal.write(newSessionId, data)
-              
-              // Local echo for immediate feedback if needed
-              // (Backend terminal should handle echo, but this ensures responsiveness)
-            })
-          }
-
-          // AI command execution with user-visible process
-          if (selectedAIModel) {
-            const aiCommands = {
-              'claude-code': 'claude',
-              'gemini': 'gemini'
-            }
-            
-            const command = aiCommands[selectedAIModel]
-            if (command) {
-              // Show the command being executed
-              setTimeout(async () => {
-                try {
-                  if (xtermRef.current) {
-                    xtermRef.current.writeln('\r\nStarting AI session...')
-                  }
-                  
-                  // Change to project directory
-                  await window.electronAPI.terminal.write(newSessionId, `cd "${projectPath}"\r`)
-                  
-                  // Brief delay for directory change
-                  await new Promise(resolve => setTimeout(resolve, 500))
-                  
-                  // Show the command and execute it
-                  if (xtermRef.current) {
-                    xtermRef.current.write(`$ ${command}\r`)
-                  }
-                  await window.electronAPI.terminal.write(newSessionId, `${command}\r`)
-                  
-                } catch (error) {
-                  console.error(`Failed to start ${selectedAIModel}:`, error)
-                  if (xtermRef.current) {
-                    xtermRef.current.writeln(`\r\nError starting ${selectedAIModel}`)
-                    xtermRef.current.write('$ ')
-                  }
-                }
-              }, 1000)
-            }
-          }
-
-          // Initialize shell prompt for terminal session
-          if (xtermRef.current && !selectedAIModel) {
-            // Show ready prompt if no AI model selected
-            setTimeout(() => {
-              if (xtermRef.current) {
-                xtermRef.current.writeln('\r\nTerminal ready. You can start typing commands.')
-                xtermRef.current.write('$ ')
-              }
-            }, 1000)
-          }
-
+          setInternalSessionId(result.data.sessionId)
         } else {
           throw new Error(result.error || 'Failed to create terminal session')
         }
       } catch (err) {
-        console.error(`Terminal session creation attempt ${retryCount + 1} failed:`, err)
-        
-        // Simplified retry logic
-        if (retryCount < maxRetries) {
-          setTimeout(() => createSession(retryCount + 1), (retryCount + 1) * 2000)
-        } else {
-          // Final failure - minimal error display
-          setError(`Failed to create terminal session`)
-        }
+        console.error('Failed to create terminal session:', err)
+        setError('Failed to create terminal session')
       }
     }
 
     createSession()
-  }, [isConnected, sessionId, projectPath, selectedAIModel])
+  }, [isConnected, internalSessionId, projectPath])
+
+  // Wire up terminal I/O
+  useEffect(() => {
+    if (!internalSessionId || !xtermRef.current) return
+
+    const terminal = xtermRef.current
+
+    // Frontend -> Backend (User Input)
+    const onDataDisposable = terminal.onData((data) => {
+      window.electronAPI.terminal.write(internalSessionId, data)
+    })
+
+    // Backend -> Frontend (Shell Output)
+    const handleTerminalData = (_event: any, data: string) => {
+      terminal.write(data)
+    }
+
+    const handleTerminalExit = (_event: any, code: number) => {
+      terminal.writeln(`
+Process exited with code ${code}`)
+      onTerminalExit?.()
+    }
+
+    const dataChannel = `terminal-data-${internalSessionId}`
+    const exitChannel = `terminal-exit-${internalSessionId}`
+
+    window.electronAPI.on?.(dataChannel, handleTerminalData)
+    window.electronAPI.on?.(exitChannel, handleTerminalExit)
+
+    // Send initial command or enter key
+    if (selectedAIModel) {
+      const aiCommands = {
+        'claude-code': 'claude',
+        'gemini': 'gemini'
+      }
+      const command = aiCommands[selectedAIModel]
+      if (command) {
+        setTimeout(async () => {
+          try {
+            terminal.writeln('Starting AI session...')
+            await window.electronAPI.terminal.write(internalSessionId, `cd "${projectPath}"
+`)
+            await new Promise(resolve => setTimeout(resolve, 200))
+            await window.electronAPI.terminal.write(internalSessionId, `${command}
+`)
+          } catch (error) {
+            console.error(`Failed to start ${selectedAIModel}:`, error)
+            terminal.writeln(`
+Error starting ${selectedAIModel}`)
+            terminal.write('$ ')
+          }
+        }, 500)
+      }
+    } else {
+      // Send an initial carriage return to get the shell prompt
+      window.electronAPI.terminal.write(internalSessionId, '')
+    }
+
+    // Cleanup
+    return () => {
+      onDataDisposable.dispose()
+      window.electronAPI.removeListener?.(dataChannel, handleTerminalData)
+      window.electronAPI.removeListener?.(exitChannel, handleTerminalExit)
+    }
+  }, [internalSessionId, projectPath, selectedAIModel, onTerminalExit])
 
   // Handle resize
   useEffect(() => {
     const handleResize = () => {
       if (fitAddonRef.current && xtermRef.current) {
         fitAddonRef.current.fit()
+        const { cols, rows } = xtermRef.current
+        if (internalSessionId) {
+          window.electronAPI.terminal.resize(internalSessionId, cols, rows)
+        }
       }
     }
 
     window.addEventListener('resize', handleResize)
+    // Also resize on initial load
+    setTimeout(handleResize, 100)
     return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  }, [internalSessionId])
 
   // Search functionality
   const handleSearch = useCallback((query: string, direction: 'next' | 'previous' = 'next') => {
@@ -291,11 +255,10 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
   }
 
   // Terminal controls
-
   const handleStop = async () => {
-    if (sessionId) {
+    if (internalSessionId) {
       try {
-        await window.electronAPI.terminal.close(sessionId)
+        await window.electronAPI.terminal.close(internalSessionId)
         onTerminalExit?.()
       } catch (err) {
         console.error('Failed to stop terminal:', err)
@@ -355,7 +318,7 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
                 {selectedAIModel}
               </Badge>
             )}
-            {isConnected && (
+            {internalSessionId && isConnected && (
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
                 <span className="text-xs text-green-400">Connected</span>
@@ -406,6 +369,7 @@ export const RealTerminal: React.FC<RealTerminalProps> = ({
                   size="sm"
                   onClick={handleStop}
                   className="h-8 w-8 p-0 text-gray-400 hover:text-red-400"
+                  disabled={!internalSessionId}
                 >
                   <Square className="h-4 w-4" />
                 </Button>

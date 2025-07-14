@@ -1,11 +1,11 @@
 import { ipcMain } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
+import * as pty from 'node-pty';
 import { ApiResponse } from './types';
 
 // Terminal session management
 interface TerminalSession {
   id: string;
-  process: ChildProcess;
+  process: pty.IPty;
   isActive: boolean;
   workingDirectory: string;
   shell: string;
@@ -23,25 +23,26 @@ class TerminalHandler {
       const sessionId = `terminal_${this.nextSessionId++}`;
       
       // Determine shell to use
-      const defaultShell = process.platform === 'win32' ? 'cmd.exe' : 
+      const defaultShell = process.platform === 'win32' ? 'powershell.exe' : 
                           process.platform === 'darwin' ? process.env.SHELL || '/bin/zsh' :
                           '/bin/bash';
       const selectedShell = shell || defaultShell;
 
-      // Create child process
-      const childProcess = spawn(selectedShell, [], {
+      // Create pty process
+      const ptyProcess = pty.spawn(selectedShell, [], {
         cwd: workingDirectory,
         env: {
           ...process.env,
           TERM: 'xterm-256color',
           // Add any project-specific environment variables here
         },
-        stdio: ['pipe', 'pipe', 'pipe']
+        cols: 80,
+        rows: 30
       });
 
       const session: TerminalSession = {
         id: sessionId,
-        process: childProcess,
+        process: ptyProcess,
         isActive: true,
         workingDirectory,
         shell: selectedShell
@@ -50,13 +51,8 @@ class TerminalHandler {
       this.sessions.set(sessionId, session);
 
       // Handle process events
-      childProcess.on('exit', (code) => {
-        console.log(`Terminal session ${sessionId} exited with code ${code}`);
-        this.sessions.delete(sessionId);
-      });
-
-      childProcess.on('error', (error) => {
-        console.error(`Terminal session ${sessionId} error:`, error);
+      ptyProcess.onExit(({ exitCode }) => {
+        console.log(`Terminal session ${sessionId} exited with code ${exitCode}`);
         this.sessions.delete(sessionId);
       });
 
@@ -83,7 +79,7 @@ class TerminalHandler {
         throw new Error(`Terminal session ${sessionId} not found or inactive`);
       }
 
-      session.process.stdin?.write(data);
+      session.process.write(data);
       
       return { success: true };
     } catch (error: any) {
@@ -105,8 +101,7 @@ class TerminalHandler {
         throw new Error(`Terminal session ${sessionId} not found or inactive`);
       }
 
-      // For now, just log the resize - real implementation would require node-pty
-      console.log(`Resize terminal ${sessionId} to ${cols}x${rows}`);
+      session.process.resize(cols, rows);
       
       return { success: true };
     } catch (error: any) {
@@ -201,19 +196,14 @@ class TerminalHandler {
       return;
     }
 
-    // Forward stdout to renderer
-    session.process.stdout?.on('data', (data) => {
-      webContents.send(`terminal-data-${sessionId}`, data.toString());
-    });
-
-    // Forward stderr to renderer
-    session.process.stderr?.on('data', (data) => {
-      webContents.send(`terminal-data-${sessionId}`, data.toString());
+    // Forward data to renderer
+    session.process.onData((data) => {
+      webContents.send(`terminal-data-${sessionId}`, data);
     });
 
     // Notify when process exits
-    session.process.on('exit', (code) => {
-      webContents.send(`terminal-exit-${sessionId}`, code);
+    session.process.onExit(({ exitCode }) => {
+      webContents.send(`terminal-exit-${sessionId}`, exitCode);
     });
   }
 
