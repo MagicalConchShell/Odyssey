@@ -6,7 +6,6 @@ import {
 } from 'lucide-react'
 import { CommandPalette } from './command/CommandPalette'
 import { Button } from './ui/button'
-import { Progress } from './ui/progress'
 import { toast } from "sonner"
 
 interface ClaudeProjectImportCandidate {
@@ -36,6 +35,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [importCandidates, setImportCandidates] = useState<ClaudeProjectImportCandidate[]>([])
   const [importLoading, setImportLoading] = useState(false)
+  const [importPhase, setImportPhase] = useState<'scanning' | 'importing'>('scanning')
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set())
   const [refreshFunction, setRefreshFunction] = useState<(() => Promise<void>) | null>(null)
 
@@ -68,6 +68,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const loadImportCandidates = async () => {
     try {
       setImportLoading(true)
+      setImportPhase('scanning')
       const response = await window.electronAPI.projectManagement.getClaudeProjectImportCandidates()
       if (response.success) {
         setImportCandidates(response.data || [])
@@ -86,6 +87,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const handleImportProjectsConfirm = async () => {
     try {
       setImportLoading(true)
+      setImportPhase('importing')
       const response = await window.electronAPI.projectManagement.importClaudeProjects(
         Array.from(selectedCandidates)
       )
@@ -226,9 +228,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <div className="p-6 overflow-auto max-h-96">
                 {importLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="w-full">
-                      <Progress value={undefined} className="w-full" />
-                      <span className="mt-2 text-sm text-muted-foreground">Scanning projects...</span>
+                    <div className="flex flex-col items-center space-y-3">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <span className="text-sm text-muted-foreground">
+                        {importPhase === 'scanning' ? 'Scanning for Claude projects...' : 'Importing selected projects...'}
+                      </span>
                     </div>
                   </div>
                 ) : importCandidates.length > 0 ? (
@@ -277,7 +281,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   {importLoading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Importing...
+                      {importPhase === 'scanning' ? 'Scanning...' : 'Importing...'}
                     </>
                   ) : (
                     `Import ${selectedCandidates.size} projects`

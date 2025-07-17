@@ -13,7 +13,7 @@ export type {
   GitHistory,
   GitCommit,
   GitBranch
-} from '../../electron/ipc-handlers/types';
+} from '../../electron/handlers/types';
 
 // Re-export as old interface names for compatibility
 import type {

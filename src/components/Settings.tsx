@@ -11,6 +11,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { ClaudeSettings } from '@/types/electron'
+import { toast } from 'sonner'
 
 interface SettingsProps {
   onBack: () => void
@@ -24,10 +25,6 @@ interface EnvironmentVariable {
   value: string
 }
 
-interface Toast {
-  message: string
-  type: 'success' | 'error'
-}
 
 export const Settings: React.FC<SettingsProps> = ({
   onBack,
@@ -38,7 +35,6 @@ export const Settings: React.FC<SettingsProps> = ({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<Toast | null>(null)
 
 
   // Environment variables state
@@ -54,12 +50,6 @@ export const Settings: React.FC<SettingsProps> = ({
     loadClaudeBinaryPath()
   }, [])
 
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [toast])
 
   const loadClaudeBinaryPath = async () => {
     try {
@@ -108,7 +98,6 @@ export const Settings: React.FC<SettingsProps> = ({
     try {
       setSaving(true)
       setError(null)
-      setToast(null)
 
       // Build the settings object
       const updatedSettings: ClaudeSettings = {
@@ -139,11 +128,11 @@ export const Settings: React.FC<SettingsProps> = ({
         }
       }
 
-      setToast({ message: 'Settings saved successfully!', type: 'success' })
+      toast.success('Settings saved successfully!')
     } catch (err) {
       console.error('Failed to save settings:', err)
       setError('Failed to save settings.')
-      setToast({ message: 'Failed to save settings', type: 'error' })
+      toast.error('Failed to save settings')
     } finally {
       setSaving(false)
     }
@@ -245,21 +234,6 @@ export const Settings: React.FC<SettingsProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Toast notification */}
-        <AnimatePresence>
-          {toast && (
-            <motion.div
-              initial={{ opacity: 0, y: -50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -50 }}
-              className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
-                toast.type === 'success' ? 'bg-accent/10 border border-accent/20 text-accent-foreground' : 'bg-destructive/10 border border-destructive/20 text-destructive'
-              }`}
-            >
-              {toast.message}
-            </motion.div>
-          )}
-        </AnimatePresence>
         
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">

@@ -5,6 +5,7 @@ import { ArrowLeft, Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClaudeMdFile } from "@/types/electron";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface ClaudeFileEditorProps {
   /**
@@ -40,7 +41,6 @@ export const ClaudeFileEditor: React.FC<ClaudeFileEditorProps> = ({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   
   const hasChanges = content !== originalContent;
   
@@ -72,18 +72,17 @@ export const ClaudeFileEditor: React.FC<ClaudeFileEditorProps> = ({
     try {
       setSaving(true);
       setError(null);
-      setToast(null);
       const result = await window.electronAPI.fileSystem.saveClaudeMdFile(file.absolute_path, content);
       if (result.success) {
         setOriginalContent(content);
-        setToast({ message: "File saved successfully", type: "success" });
+        toast.success("File saved successfully");
       } else {
         throw new Error(result.error || "Failed to save file");
       }
     } catch (err) {
       console.error("Failed to save file:", err);
       setError("Failed to save CLAUDE.md file");
-      setToast({ message: "Failed to save file", type: "error" });
+      toast.error("Failed to save file");
     } finally {
       setSaving(false);
     }
@@ -99,13 +98,6 @@ export const ClaudeFileEditor: React.FC<ClaudeFileEditorProps> = ({
     onBack();
   };
 
-  // Auto-dismiss toast after 3 seconds
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
   
   return (
     <div className={cn("flex flex-col h-full bg-background", className)}>
@@ -159,22 +151,6 @@ export const ClaudeFileEditor: React.FC<ClaudeFileEditorProps> = ({
           </motion.div>
         )}
         
-        {/* Toast notification */}
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            className={cn(
-              "fixed top-4 right-4 z-50 rounded-lg border p-3 text-sm shadow-lg",
-              toast.type === "success" 
-                ? "border-green-500/50 bg-green-500/10 text-green-600" 
-                : "border-red-500/50 bg-red-500/10 text-red-600"
-            )}
-          >
-            {toast.message}
-          </motion.div>
-        )}
         
         {/* Editor */}
         <div className="flex-1 p-4 overflow-hidden">

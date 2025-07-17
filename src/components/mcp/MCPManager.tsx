@@ -5,16 +5,13 @@ import { McpServer } from '../../types/electron'
 import { MCPServerList } from './MCPServerList'
 import { MCPAddServer } from './MCPAddServer'
 import { MCPImportExport } from './MCPImportExport'
+import { toast } from 'sonner'
 
 interface MCPManagerProps {
   onBack: () => void
   className?: string
 }
 
-interface Toast {
-  message: string
-  type: 'success' | 'error'
-}
 
 export const MCPManager: React.FC<MCPManagerProps> = ({
   onBack,
@@ -24,18 +21,11 @@ export const MCPManager: React.FC<MCPManagerProps> = ({
   const [servers, setServers] = useState<McpServer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<Toast | null>(null)
 
   useEffect(() => {
     loadServers()
   }, [])
 
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [toast])
 
   const loadServers = async () => {
     try {
@@ -61,32 +51,26 @@ export const MCPManager: React.FC<MCPManagerProps> = ({
 
   const handleServerAdded = () => {
     loadServers()
-    setToast({ message: 'MCP server added successfully!', type: 'success' })
+    toast.success('MCP server added successfully!')
     setActiveTab('servers')
   }
 
   const handleServerRemoved = (name: string) => {
     setServers(prev => prev.filter(s => s.name !== name))
-    setToast({ message: `Server "${name}" removed successfully!`, type: 'success' })
+    toast.success(`Server "${name}" removed successfully!`)
   }
 
   const handleImportCompleted = (imported: number, failed: number) => {
     loadServers()
     if (failed === 0) {
-      setToast({ 
-        message: `Successfully imported ${imported} server${imported > 1 ? 's' : ''}!`, 
-        type: 'success' 
-      })
+      toast.success(`Successfully imported ${imported} server${imported > 1 ? 's' : ''}!`)
     } else {
-      setToast({ 
-        message: `Imported ${imported} server${imported > 1 ? 's' : ''}, ${failed} failed`, 
-        type: 'error' 
-      })
+      toast.error(`Imported ${imported} server${imported > 1 ? 's' : ''}, ${failed} failed`)
     }
   }
 
   const handleError = (message: string) => {
-    setToast({ message, type: 'error' })
+    toast.error(message)
   }
 
   return (
@@ -133,21 +117,6 @@ export const MCPManager: React.FC<MCPManagerProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Toast notification */}
-        <AnimatePresence>
-          {toast && (
-            <motion.div
-              initial={{ opacity: 0, y: -50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -50 }}
-              className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
-                toast.type === 'success' ? 'bg-accent/10 border border-accent text-accent-foreground' : 'bg-destructive/10 border border-destructive text-destructive'
-              }`}
-            >
-              {toast.message}
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Main Content */}
         {loading ? (

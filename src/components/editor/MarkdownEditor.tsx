@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface MarkdownEditorProps {
   /**
@@ -31,7 +32,6 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   
   const hasChanges = content !== originalContent;
   
@@ -63,18 +63,17 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
     try {
       setSaving(true);
       setError(null);
-      setToast(null);
       const result = await window.electronAPI.fileSystem.saveSystemPrompt(content);
       if (result.success) {
         setOriginalContent(content);
-        setToast({ message: "CLAUDE.md saved successfully", type: "success" });
+        toast.success("CLAUDE.md saved successfully");
       } else {
         throw new Error(result.error || "Failed to save system prompt");
       }
     } catch (err) {
       console.error("Failed to save system prompt:", err);
       setError("Failed to save CLAUDE.md file");
-      setToast({ message: "Failed to save CLAUDE.md", type: "error" });
+      toast.error("Failed to save CLAUDE.md");
     } finally {
       setSaving(false);
     }
@@ -90,13 +89,6 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
     onBack();
   };
 
-  // Auto-dismiss toast after 3 seconds
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
   
   return (
     <div className={cn("flex flex-col h-full bg-background", className)}>
@@ -150,22 +142,6 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
           </motion.div>
         )}
         
-        {/* Toast notification */}
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            className={cn(
-              "fixed top-4 right-4 z-50 rounded-lg border p-3 text-sm shadow-lg",
-              toast.type === "success" 
-                ? "border-green-500/50 bg-green-500/10 text-green-600" 
-                : "border-red-500/50 bg-red-500/10 text-red-600"
-            )}
-          >
-            {toast.message}
-          </motion.div>
-        )}
         
         {/* Editor */}
         <div className="flex-1 p-4 overflow-hidden">
