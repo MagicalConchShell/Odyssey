@@ -3,15 +3,15 @@ import {ArrowLeft} from 'lucide-react'
 import {ClaudeMdFile} from './types/electron'
 
 // Import components
-import {ProjectWorkspace} from './components/project/ProjectWorkspace'
-import {type Project} from './components/project/lib/projectState'
-import {ProjectStateProvider} from './components/project/ProjectStateProvider'
-import {Settings} from './components/Settings'
-import {UsageDashboard} from './components/UsageDashboard'
+import {ProjectWorkspace} from '@/components/project'
+import {Project} from '@/components/project'
+import {ProjectStateProvider} from '@/components/project'
+import {Settings} from '@/components/Settings'
+import {UsageDashboard} from '@/components/UsageDashboard'
 import {MCPManager} from '@/components/mcp'
-import {WelcomeScreen} from './components/WelcomeScreen'
+import {WelcomeScreen} from '@/components/WelcomeScreen'
 import {Topbar} from '@/components/layout'
-import {ThemeProvider} from './components/theme-provider'
+import {ThemeProvider} from '@/components/theme-provider'
 import {MarkdownEditor} from '@/components/editor'
 import {ClaudeFileEditor} from '@/components/editor'
 import {GlobalCommandOverlay} from '@/components/command'
@@ -56,7 +56,6 @@ function App() {
           }
         }
       } catch (error) {
-        console.error('Failed to get platform:', error)
         // Fallback to user agent detection
         const userAgent = navigator.userAgent.toLowerCase()
         if (userAgent.includes('mac')) {
@@ -104,11 +103,6 @@ function App() {
         if (!window.electronAPI) {
           throw new Error('electronAPI not available - not running in Electron')
         }
-
-
-        // Load data based on view
-        // Projects view data is handled by ProjectList component
-
 
       } catch (error) {
         console.error('Failed to load view data:', error)

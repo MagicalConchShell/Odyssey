@@ -1,7 +1,7 @@
 import React from 'react'
 import {motion} from 'framer-motion'
 import {Settings} from 'lucide-react'
-import {GlobalCommandBar} from '../command/GlobalCommandBar'
+import {GlobalCommandBar} from '@/components/command'
 import {ModeToggle} from '../mode-toggle'
 
 type View = 

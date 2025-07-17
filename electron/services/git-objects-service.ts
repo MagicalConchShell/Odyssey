@@ -199,14 +199,14 @@ export class GitObjectStore {
     // Atomic write
     await this.atomicWrite(objectPath, compressed);
     
-    // Clear cache because new object was added
+    // Clear cache because a new object was added
     this.invalidateCache();
     
     return hash;
   }
 
   /**
-   * Read object
+   * Read an object
    */
   async readObject(hash: string): Promise<GitObject | null> {
     const objectPath = this.getObjectPath(hash);
@@ -268,7 +268,7 @@ export class GitObjectStore {
   }
 
   /**
-   * Check if object exists
+   * Check if an object exists
    */
   async hasObject(hash: string): Promise<boolean> {
     const objectPath = this.getObjectPath(hash);
