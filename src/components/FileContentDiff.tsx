@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { X, RotateCcw, Copy, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { getFileExtension, getLanguageFromExtension } from '@/lib/file-utils'
 import { FileDiff, DiffType } from '../../electron/types/git-checkpoint'
 import SyntaxHighlighterLazy from './SyntaxHighlighterLazy'
 
@@ -23,46 +24,6 @@ interface DiffContent {
   diffType: DiffType
 }
 
-const getFileExtension = (filename: string): string => {
-  const extension = filename.split('.').pop()?.toLowerCase()
-  return extension || 'text'
-}
-
-const getLanguageFromExtension = (extension: string): string => {
-  const languageMap: Record<string, string> = {
-    'ts': 'typescript',
-    'tsx': 'typescript',
-    'js': 'javascript',
-    'jsx': 'javascript',
-    'py': 'python',
-    'rs': 'rust',
-    'go': 'go',
-    'java': 'java',
-    'cpp': 'cpp',
-    'c': 'c',
-    'h': 'c',
-    'css': 'css',
-    'scss': 'scss',
-    'html': 'html',
-    'xml': 'xml',
-    'json': 'json',
-    'yaml': 'yaml',
-    'yml': 'yaml',
-    'md': 'markdown',
-    'sql': 'sql',
-    'sh': 'bash',
-    'bash': 'bash',
-    'php': 'php',
-    'rb': 'ruby',
-    'swift': 'swift',
-    'kt': 'kotlin',
-    'r': 'r',
-    'dart': 'dart',
-    'vue': 'vue',
-    'svelte': 'svelte'
-  }
-  return languageMap[extension] || 'text'
-}
 
 const DiffTypeIndicator: React.FC<{ diffType: DiffType }> = ({ diffType }) => {
   const config = {
@@ -270,6 +231,9 @@ export const FileContentDiff: React.FC<FileContentDiffProps> = ({
             <span>File Diff: {fileName}</span>
             <DiffTypeIndicator diffType={fileDiff.type} />
           </DialogTitle>
+          <DialogDescription>
+            Compare file changes between different versions of your project.
+          </DialogDescription>
           
           {/* File path and actions */}
           <div className="flex items-center justify-between">

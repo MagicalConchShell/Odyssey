@@ -11,8 +11,7 @@ import {
   AlertTriangle,
   GitMerge,
   Copy,
-  GitBranch as GitBranchIcon,
-  User
+  GitBranch as GitBranchIcon
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -45,7 +44,7 @@ export interface GitTimelineTreeRef {
 
 // Constants for layout (should match git-graph-layout.ts)
 const NODE_HEIGHT = 48; // Height of each commit node in pixels
-const COLUMN_WIDTH = 30; // Width of each branch column in pixels
+const COLUMN_WIDTH = 32; // Width of each branch column in pixels
 const NODE_RADIUS = 4; // Radius of the commit circle
 
 /**
@@ -392,27 +391,67 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
         )}
         
         {/* Git-style branch tree */}
-        <div className="relative" style={{ minHeight: treeNodes.length * (compact ? 36 : 52) + 48 }}>
+        <div className="relative" style={{ minHeight: treeNodes.length * (compact ? 36 : 52) + 72, paddingTop: '24px' }}>
           {/* SVG connection lines */}
           <svg
-            className="absolute inset-0 w-full h-full pointer-events-none z-0"
-            style={{ width: maxColumns * COLUMN_WIDTH + 20 }} // Adjust SVG width based on max columns
+            className="absolute pointer-events-none z-[5]"
+            style={{ 
+              left: '12px', // Match node positioning offset
+              top: 0,
+              width: `calc(100% - 12px + ${maxColumns * COLUMN_WIDTH + 24}px)`, // Account for left offset
+              height: '100%',
+              minWidth: 'calc(100% - 12px)'
+            }}
           >
+            {/* Debug: SVG boundary visualization */}
+            <rect
+              x="0"
+              y="24"
+              width="calc(100% - 12px)"
+              height="calc(100% - 24px)"
+              fill="none"
+              stroke="rgba(255,0,0,0.1)"
+              strokeWidth="1"
+              strokeDasharray="5,5"
+            />
+            
             {Array.isArray(connectionLines) && connectionLines.map((line, index) => (
-              <path
-                key={index}
-                d={line.pathData}
-                stroke={line.color}
-                strokeWidth={line.strokeWidth}
-                fill="none"
-                strokeDasharray={line.type === 'merge' ? '5,5' : undefined}
-                className="transition-all duration-200"
-              />
+              <g key={index}>
+                {/* Debug: Connection line endpoints */}
+                <circle
+                  cx={line.from.columnIndex * COLUMN_WIDTH + NODE_RADIUS + NODE_RADIUS / 2}
+                  cy={line.from.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2 + 24}
+                  r="2"
+                  fill="rgba(255,0,0,0.5)"
+                />
+                <circle
+                  cx={line.to.columnIndex * COLUMN_WIDTH + NODE_RADIUS + NODE_RADIUS / 2}
+                  cy={line.to.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2 + 24}
+                  r="2"
+                  fill="rgba(0,255,0,0.5)"
+                />
+                
+                {/* Actual connection line */}
+                <path
+                  d={line.pathData}
+                  stroke={line.color || '#6b7280'} // Fallback to gray if no color
+                  strokeWidth={Math.max(line.strokeWidth, 3)} // Ensure minimum visibility
+                  fill="none"
+                  strokeDasharray={line.type === 'merge' ? '5,5' : undefined}
+                  className="transition-all duration-200"
+                  style={{
+                    filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.5))', // Stronger shadow for better visibility
+                    opacity: 0.9, // Slightly transparent for better visual integration
+                  }}
+                  strokeLinecap="round" // Smoother line endings
+                  strokeLinejoin="round" // Smoother line joints
+                />
+              </g>
             ))}
           </svg>
           
           {/* Checkpoint nodes with performance optimization */}
-          <div className="relative z-10">
+          <div className="relative z-[10]">
             {Array.isArray(treeNodes) && treeNodes.map((node, index) => (
               <motion.div
                 key={node.checkpoint.hash}
@@ -424,9 +463,9 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                 }}
                 className="absolute group cursor-pointer"
                 style={{
-                  left: node.columnIndex * COLUMN_WIDTH,
-                  top: node.rowIndex * NODE_HEIGHT,
-                  width: `calc(100% - ${node.columnIndex * COLUMN_WIDTH}px)`, // Adjust width to fill remaining space
+                  left: node.columnIndex * COLUMN_WIDTH + 12, // Add offset to prevent overlap with buttons
+                  top: node.rowIndex * NODE_HEIGHT + 24, // Account for top padding
+                  width: `calc(100% - ${node.columnIndex * COLUMN_WIDTH + 12}px)`, // Adjust width to fill remaining space
                   height: `${NODE_HEIGHT}px`
                 }}
                 onClick={() => {
@@ -435,11 +474,22 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                 }}
               >
                 {/* Git-style commit row */}
-                <div className="flex items-center w-full h-full hover:bg-accent/50 rounded-md transition-colors">
+                <div className="flex items-center w-full h-full hover:bg-accent/50 rounded-md transition-colors relative">
+                  {/* Background for better contrast with connection lines - only on hover and only for text area */}
+                  <div 
+                    className="absolute rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-[1]"
+                    style={{
+                      left: `${NODE_RADIUS + 20}px`, // Start after the node circle
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      backgroundColor: 'rgba(255,255,255,0.8)',
+                    }}
+                  />
                   {/* Node circle/square */}
                   <div
                     className={cn(
-                      "relative flex items-center justify-center transition-all duration-200 flex-shrink-0",
+                      "relative flex items-center justify-center transition-all duration-200 flex-shrink-0 z-[15]",
                       node.isMergeCommit 
                         ? "w-4 h-4 rounded-sm border-2" // Square for merge commits
                         : "w-3 h-3 rounded-full border-2", // Circle for regular commits
@@ -450,8 +500,9 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                     style={{
                       marginLeft: NODE_RADIUS, // Offset for node circle
                       borderColor: node.branchColor,
-                      backgroundColor: node.isCurrent ? node.branchColor : undefined,
-                      boxShadow: node.isCurrent ? `0 0 15px ${node.branchColor}40` : undefined
+                      backgroundColor: node.isCurrent ? node.branchColor : 'white',
+                      boxShadow: node.isCurrent ? `0 0 15px ${node.branchColor}40` : `0 0 0 1px white, 0 0 0 2px ${node.branchColor}`,
+                      position: 'relative',
                     }}
                   >
                     {node.isMergeCommit && (
@@ -477,7 +528,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                   </div>
                   
                   {/* Git-style commit info */}
-                  <div className="flex-1 ml-3 min-w-0">
+                  <div className="flex-1 ml-3 min-w-0 relative z-[12]">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
                         {/* Commit hash and description */}
@@ -556,11 +607,6 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                           </div>
                           
                           <div className="flex items-center gap-1">
-                            <User className="w-3 h-3" />
-                            <span>{node.checkpoint.author || 'unknown'}</span>
-                          </div>
-                          
-                          <div className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
                             <span>{formatDistanceToNow(new Date(node.checkpoint.timestamp))} ago</span>
                           </div>
@@ -629,7 +675,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                             <DropdownMenuItem
                               onClick={(e) => {
                                 e.stopPropagation()
-                                const message = `${node.checkpoint.description}\n\nCommit: ${node.checkpoint.hash}\nAuthor: ${node.checkpoint.author || 'unknown'}\nDate: ${new Date(node.checkpoint.timestamp).toLocaleString()}`
+                                const message = `${node.checkpoint.description}\n\nCommit: ${node.checkpoint.hash}\nDate: ${new Date(node.checkpoint.timestamp).toLocaleString()}`
                                 navigator.clipboard.writeText(message)
                               }}
                             >
@@ -702,10 +748,6 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                       </div>
                       
                       <div className="text-xs text-muted-foreground space-y-2">
-                        <div className="flex items-center gap-2">
-                          <User className="w-3 h-3 flex-shrink-0" />
-                          <span>Author: {node.checkpoint.author || 'unknown'}</span>
-                        </div>
                         
                         <div className="flex items-center gap-2">
                           <Clock className="w-3 h-3 flex-shrink-0" />

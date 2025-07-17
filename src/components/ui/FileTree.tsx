@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getFileIcon } from '@/lib/file-utils'
 
 export interface FileTreeItem {
   path: string
+  fullPath?: string
   isDirectory: boolean
   size?: number
+  modified?: string
   hash?: string
   children?: FileTreeItem[]
+  gitStatus?: 'modified' | 'untracked' | 'deleted' | 'staged'
 }
 
 export interface FileTreeProps {
@@ -16,6 +20,7 @@ export interface FileTreeProps {
   className?: string
   formatFileSize?: (bytes: number) => string
   showFileInfo?: boolean
+  showGitStatus?: boolean
 }
 
 interface FileTreeNodeProps {
@@ -24,9 +29,10 @@ interface FileTreeNodeProps {
   onItemClick?: (item: FileTreeItem) => void
   formatFileSize?: (bytes: number) => string
   showFileInfo?: boolean
+  showGitStatus?: boolean
 }
 
-const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo }: FileTreeNodeProps) => {
+const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, showGitStatus }: FileTreeNodeProps) => {
   const [isExpanded, setIsExpanded] = useState(true)
   
   const handleToggle = (e: React.MouseEvent) => {
@@ -71,22 +77,37 @@ const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo }
           <div className="w-4 h-4" />
         )}
         
-        {/* File/folder icon */}
-        <div className="flex-shrink-0">
+        {/* File/folder icon with git status indicator */}
+        <div className="flex-shrink-0 relative">
           {item.isDirectory ? (
             isExpanded ? (
               <FolderOpen className="w-4 h-4 text-blue-500" />
             ) : (
               <Folder className="w-4 h-4 text-blue-500" />
             )
-          ) : (
-            <FileText className="w-4 h-4 text-muted-foreground" />
+          ) : (() => {
+            const fileName = item.path.split('/').pop() || ''
+            const { icon: FileIcon, color } = getFileIcon(fileName)
+            return <FileIcon className={cn("w-4 h-4", color)} />
+          })()}
+          
+          {/* Git status indicator */}
+          {showGitStatus && item.gitStatus && (
+            <div className={cn(
+              "absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-background",
+              {
+                'bg-green-500': item.gitStatus === 'untracked',
+                'bg-yellow-500': item.gitStatus === 'modified',
+                'bg-red-500': item.gitStatus === 'deleted',
+                'bg-blue-500': item.gitStatus === 'staged',
+              }
+            )} />
           )}
         </div>
         
         {/* File/folder name */}
         <div className="flex-1 min-w-0">
-          <div className="text-sm truncate font-mono">
+          <div className="text-xs truncate font-mono">
             {item.path.split('/').pop()}
           </div>
         </div>
@@ -115,6 +136,7 @@ const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo }
               onItemClick={onItemClick}
               formatFileSize={formatFileSize}
               showFileInfo={showFileInfo}
+              showGitStatus={showGitStatus}
             />
           ))}
         </div>
@@ -128,7 +150,8 @@ export const FileTree = ({
   onItemClick, 
   className, 
   formatFileSize,
-  showFileInfo = true 
+  showFileInfo = true,
+  showGitStatus = false 
 }: FileTreeProps) => {
   if (items.length === 0) {
     return (
@@ -149,6 +172,7 @@ export const FileTree = ({
           onItemClick={onItemClick}
           formatFileSize={formatFileSize}
           showFileInfo={showFileInfo}
+          showGitStatus={showGitStatus}
         />
       ))}
     </div>

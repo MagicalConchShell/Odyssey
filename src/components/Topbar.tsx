@@ -2,6 +2,7 @@ import React from 'react'
 import {motion} from 'framer-motion'
 import {Settings} from 'lucide-react'
 import {GlobalCommandBar} from './GlobalCommandBar'
+import {ModeToggle} from './mode-toggle'
 
 type View = 
   | "welcome"
@@ -50,8 +51,9 @@ export const Topbar: React.FC<TopbarProps> = ({
         )}
       </div>
       
-      {/* Right side - Settings Button */}
-      <div className="flex-1 flex justify-end">
+      {/* Right side - Theme Toggle & Settings Button */}
+      <div className="flex-1 flex justify-end items-center gap-2">
+        <ModeToggle />
         <button
           onClick={onSettingsClick}
           className="h-6 w-6 hover:bg-accent rounded-md transition-colors flex items-center justify-center"

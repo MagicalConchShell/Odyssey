@@ -1,5 +1,9 @@
 import React, { useState } from 'react'
 import { Download, Upload, FileText, Loader2, Info, Network, Settings2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 interface MCPImportExportProps {
   onImportCompleted: (imported: number, failed: number) => void
@@ -13,6 +17,11 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
   const [importingDesktop, setImportingDesktop] = useState(false)
   const [importingJson, setImportingJson] = useState(false)
   const [importScope, setImportScope] = useState('local')
+  
+  // Server name dialog state
+  const [serverNameDialogOpen, setServerNameDialogOpen] = useState(false)
+  const [serverName, setServerName] = useState('')
+  const [pendingServerConfig, setPendingServerConfig] = useState<string | null>(null)
 
   const handleImportFromDesktop = async () => {
     try {
@@ -97,15 +106,9 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
         onImportCompleted(imported, failed)
       } else if (jsonData.type && jsonData.command) {
         // Single server format
-        const name = prompt('Enter a name for this server:')
-        if (!name) return
-
-        const result = await window.electronAPI.mcp.addJson(name, content, importScope)
-        if (result.success) {
-          onImportCompleted(1, 0)
-        } else {
-          onError(result.message)
-        }
+        setPendingServerConfig(content)
+        setServerNameDialogOpen(true)
+        return
       } else {
         onError('Unrecognized JSON format. Expected MCP server configuration.')
       }
@@ -136,6 +139,32 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
       console.error('Failed to start MCP server:', error)
       onError('Failed to start Claude Code as MCP server')
     }
+  }
+
+  const handleServerNameSubmit = async () => {
+    if (serverName.trim() && pendingServerConfig) {
+      try {
+        const result = await window.electronAPI.mcp.addJson(serverName.trim(), pendingServerConfig, importScope)
+        if (result.success) {
+          onImportCompleted(1, 0)
+        } else {
+          onError(result.message)
+        }
+      } catch (error) {
+        onError('Failed to import server')
+      } finally {
+        setServerNameDialogOpen(false)
+        setServerName('')
+        setPendingServerConfig(null)
+      }
+    }
+  }
+
+  const handleServerNameCancel = () => {
+    setServerNameDialogOpen(false)
+    setServerName('')
+    setPendingServerConfig(null)
+    setImportingJson(false)
   }
 
   return (
@@ -339,6 +368,52 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
           </div>
         </div>
       </div>
+      
+      {/* Server Name Dialog */}
+      <Dialog open={serverNameDialogOpen} onOpenChange={setServerNameDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Enter Server Name</DialogTitle>
+            <DialogDescription>
+              Enter a unique name for this MCP server to identify it in your configuration.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="server-name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="server-name"
+                value={serverName}
+                onChange={(e) => setServerName(e.target.value)}
+                className="col-span-3"
+                placeholder="Enter server name..."
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && serverName.trim()) {
+                    handleServerNameSubmit()
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={handleServerNameCancel}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleServerNameSubmit}
+              disabled={!serverName.trim()}
+            >
+              Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -1,4 +1,5 @@
-import { createContext, useContext, useCallback } from 'react'
+import {createContext, useContext, useCallback} from 'react'
+import { TerminalMode } from '@/types/terminal'
 
 /**
  * Project State Management System
@@ -22,10 +23,8 @@ export interface ProjectState {
   sidebarTab: 'timeline' | 'files' | 'settings'
   sidebarCollapsed: boolean
   
-  // Terminal state
-  terminalSessionId: string | null
-  terminalMode: 'welcome' | 'active'
-  selectedAIModel: 'claude-code' | 'gemini' | null
+  // Terminal state - simplified for new architecture
+  terminalMode: TerminalMode
 }
 
 export interface Project {
@@ -70,9 +69,7 @@ export type ProjectAction =
   | { type: 'SET_CHECKPOINT_HISTORY'; payload: CheckpointInfo[] }
   | { type: 'SET_SIDEBAR_TAB'; payload: 'timeline' | 'files' | 'settings' }
   | { type: 'SET_SIDEBAR_COLLAPSED'; payload: boolean }
-  | { type: 'SET_TERMINAL_SESSION_ID'; payload: string | null }
-  | { type: 'SET_TERMINAL_MODE'; payload: 'welcome' | 'active' }
-  | { type: 'SET_SELECTED_AI_MODEL'; payload: 'claude-code' | 'gemini' | null }
+  | { type: 'SET_TERMINAL_MODE'; payload: TerminalMode }
   | { type: 'RESET_PROJECT_STATE' }
 
 // Initial state
@@ -93,10 +90,9 @@ const initialState: ProjectState = {
   checkpointHistory: [],
   sidebarTab: 'timeline',
   sidebarCollapsed: false,
-  terminalSessionId: null,
-  terminalMode: 'welcome',
-  selectedAIModel: null
+  terminalMode: 'welcome'
 }
+
 
 // Reducer function
 export function projectReducer(state: ProjectState, action: ProjectAction): ProjectState {
@@ -145,22 +141,10 @@ export function projectReducer(state: ProjectState, action: ProjectAction): Proj
         sidebarCollapsed: action.payload
       }
     
-    case 'SET_TERMINAL_SESSION_ID':
-      return {
-        ...state,
-        terminalSessionId: action.payload
-      }
-    
     case 'SET_TERMINAL_MODE':
       return {
         ...state,
         terminalMode: action.payload
-      }
-    
-    case 'SET_SELECTED_AI_MODEL':
-      return {
-        ...state,
-        selectedAIModel: action.payload
       }
     
     case 'RESET_PROJECT_STATE':
@@ -255,28 +239,20 @@ export function useUI() {
   }
 }
 
-export function useTerminal() {
+// Simple terminal mode hook - terminal state is now managed by Zustand
+export function useTerminalMode() {
   const { state, dispatch } = useProjectState()
   
-  const setTerminalSessionId = useCallback((sessionId: string | null) => {
-    dispatch({ type: 'SET_TERMINAL_SESSION_ID', payload: sessionId })
-  }, [dispatch])
-  
-  const setTerminalMode = useCallback((mode: 'welcome' | 'active') => {
-    dispatch({ type: 'SET_TERMINAL_MODE', payload: mode })
-  }, [dispatch])
-  
-  const setSelectedAIModel = useCallback((model: 'claude-code' | 'gemini' | null) => {
-    dispatch({ type: 'SET_SELECTED_AI_MODEL', payload: model })
+  const setTerminalMode = useCallback((mode: TerminalMode) => {
+    dispatch({ 
+      type: 'SET_TERMINAL_MODE', 
+      payload: mode
+    })
   }, [dispatch])
   
   return {
-    terminalSessionId: state.terminalSessionId,
     terminalMode: state.terminalMode,
-    selectedAIModel: state.selectedAIModel,
-    setTerminalSessionId,
-    setTerminalMode,
-    setSelectedAIModel
+    setTerminalMode
   }
 }
 
@@ -289,7 +265,7 @@ export function saveProjectState(state: ProjectState) {
       projectSettings: state.projectSettings,
       sidebarTab: state.sidebarTab,
       sidebarCollapsed: state.sidebarCollapsed,
-      selectedAIModel: state.selectedAIModel
+      terminalMode: state.terminalMode
     })
     localStorage.setItem('projectState', serializedState)
   } catch (error) {
@@ -301,7 +277,12 @@ export function loadProjectState(): Partial<ProjectState> {
   try {
     const serializedState = localStorage.getItem('projectState')
     if (serializedState) {
-      return JSON.parse(serializedState)
+      const loadedState = JSON.parse(serializedState)
+      // If terminalMode is missing, initialize it
+      if (!loadedState.terminalMode) {
+        loadedState.terminalMode = initialState.terminalMode
+      }
+      return loadedState
     }
   } catch (error) {
     console.warn('Failed to load project state:', error)
@@ -320,7 +301,7 @@ export function createProjectStateMiddleware() {
       'UPDATE_PROJECT_SETTINGS',
       'SET_SIDEBAR_TAB',
       'SET_SIDEBAR_COLLAPSED',
-      'SET_SELECTED_AI_MODEL'
+      'SET_TERMINAL_MODE'
     ].includes(action.type)) {
       saveProjectState(newState)
     }

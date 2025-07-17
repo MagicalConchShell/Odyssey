@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
 import { Button } from './ui/button'
+import { Progress } from './ui/progress'
 import { useToast } from '../hooks/useToast'
 import { ToastComponent } from './ui/toast'
 
@@ -227,15 +228,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <div className="p-6 overflow-auto max-h-96">
                 {importLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <span className="ml-2 text-sm text-muted-foreground">Scanning projects...</span>
+                    <div className="w-full">
+                      <Progress value={undefined} className="w-full" />
+                      <span className="mt-2 text-sm text-muted-foreground">Scanning projects...</span>
+                    </div>
                   </div>
                 ) : importCandidates.length > 0 ? (
                   <div className="space-y-3">
                     {importCandidates.map((candidate) => (
                       <div
                         key={candidate.claude_project_id}
-                        className="flex items-center space-x-3 p-3 border border-border rounded-lg"
+                        className="flex items-center space-x-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-accent"
+                        onClick={() => handleToggleCandidate(candidate.claude_project_id)}
                       >
                         <input
                           type="checkbox"

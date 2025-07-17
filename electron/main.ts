@@ -1,14 +1,17 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
-import { join } from 'path';
-import { dbManager } from './database.js';
-import { usageDataCache } from './usage-cache.js';
-import { setupAllHandlers, cleanupHandlers } from './handlers/index.js';
+import {app, BrowserWindow, ipcMain, session} from 'electron';
+import {join} from 'path';
+import {dbManager} from './database.js';
+import {usageDataCache} from './usage-cache.js';
+import {setupAllHandlers, cleanupHandlers} from './handlers/index.js';
+import {setMainWindow} from './handlers/file-system.js';
+import {ptyService} from "./services/pty-service";
+
 let mainWindow: BrowserWindow;
 
 /**
  * Create the main application window
  */
-const createWindow = async () =>   {
+const createWindow = async () => {
   console.log('🪟 Creating main window...');
 
   mainWindow = new BrowserWindow({
@@ -20,7 +23,6 @@ const createWindow = async () =>   {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, 'preload.js'),
-      // preload: join(__dirname, './preload.js'),
     },
     titleBarStyle: 'hiddenInset',
     show: false // Don't show until ready
@@ -30,6 +32,13 @@ const createWindow = async () =>   {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     console.log('✅ Main window ready and visible');
+
+    // Set the main window for file system watcher
+    setMainWindow(mainWindow);
+
+    // Set up terminal WebContents for event forwarding
+    const {setTerminalWebContents} = require('./handlers/terminal.js');
+    setTerminalWebContents(mainWindow.webContents);
   });
 
 
@@ -49,7 +58,6 @@ const createWindow = async () =>   {
   } catch (error) {
     console.error('❌ Failed to load renderer:', error);
   }
-
 
 
   // Handle window closed
@@ -125,8 +133,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   console.log('🚪 Application is shutting down, cleaning up resources...');
 
-  // Clean up all active processes (handled by individual handlers)
-
   // Clean up database connection
   dbManager.close();
 
@@ -135,6 +141,9 @@ app.on('before-quit', () => {
 
   // Clean up IPC handlers
   cleanupHandlers(ipcMain);
+
+  // Clean up pty process
+  ptyService.cleanup();
 
   console.log('✅ Cleanup completed');
 });

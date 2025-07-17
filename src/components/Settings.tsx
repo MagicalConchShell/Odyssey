@@ -6,8 +6,6 @@ import {
   Trash2, 
   Save, 
   AlertCircle,
-  Shield,
-  Code,
   Settings2,
   Terminal,
   Loader2
@@ -19,10 +17,6 @@ interface SettingsProps {
   className?: string
 }
 
-interface PermissionRule {
-  id: string
-  value: string
-}
 
 interface EnvironmentVariable {
   id: string
@@ -46,9 +40,6 @@ export const Settings: React.FC<SettingsProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
 
-  // Permission rules state
-  const [allowRules, setAllowRules] = useState<PermissionRule[]>([])
-  const [denyRules, setDenyRules] = useState<PermissionRule[]>([])
 
   // Environment variables state
   const [envVars, setEnvVars] = useState<EnvironmentVariable[]>([])
@@ -92,25 +83,6 @@ export const Settings: React.FC<SettingsProps> = ({
         const loadedSettings = result.settings
         setSettings(loadedSettings)
 
-        // Parse permissions
-        if (loadedSettings.permissions) {
-          if (Array.isArray(loadedSettings.permissions.allow)) {
-            setAllowRules(
-              loadedSettings.permissions.allow.map((rule: string, index: number) => ({
-                id: `allow-${index}`,
-                value: rule,
-              }))
-            )
-          }
-          if (Array.isArray(loadedSettings.permissions.deny)) {
-            setDenyRules(
-              loadedSettings.permissions.deny.map((rule: string, index: number) => ({
-                id: `deny-${index}`,
-                value: rule,
-              }))
-            )
-          }
-        }
 
         // Parse environment variables
         if (loadedSettings.env && typeof loadedSettings.env === 'object') {
@@ -141,10 +113,6 @@ export const Settings: React.FC<SettingsProps> = ({
       // Build the settings object
       const updatedSettings: ClaudeSettings = {
         ...settings,
-        permissions: {
-          allow: allowRules.map(rule => rule.value).filter(v => v.trim()),
-          deny: denyRules.map(rule => rule.value).filter(v => v.trim()),
-        },
         env: envVars.reduce((acc, { key, value }) => {
           if (key.trim() && value.trim()) {
             acc[key] = value
@@ -185,38 +153,6 @@ export const Settings: React.FC<SettingsProps> = ({
     setSettings(prev => ({ ...prev, [key]: value }))
   }
 
-  const addPermissionRule = (type: 'allow' | 'deny') => {
-    const newRule: PermissionRule = {
-      id: `${type}-${Date.now()}`,
-      value: '',
-    }
-    
-    if (type === 'allow') {
-      setAllowRules(prev => [...prev, newRule])
-    } else {
-      setDenyRules(prev => [...prev, newRule])
-    }
-  }
-
-  const updatePermissionRule = (type: 'allow' | 'deny', id: string, value: string) => {
-    if (type === 'allow') {
-      setAllowRules(prev => prev.map(rule => 
-        rule.id === id ? { ...rule, value } : rule
-      ))
-    } else {
-      setDenyRules(prev => prev.map(rule => 
-        rule.id === id ? { ...rule, value } : rule
-      ))
-    }
-  }
-
-  const removePermissionRule = (type: 'allow' | 'deny', id: string) => {
-    if (type === 'allow') {
-      setAllowRules(prev => prev.filter(rule => rule.id !== id))
-    } else {
-      setDenyRules(prev => prev.filter(rule => rule.id !== id))
-    }
-  }
 
   const addEnvVar = () => {
     const newVar: EnvironmentVariable = {
@@ -331,9 +267,7 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="flex border-b border-border">
               {[
                 { id: 'general', label: 'General', icon: Settings2 },
-                { id: 'permissions', label: 'Permissions', icon: Shield },
                 { id: 'environment', label: 'Environment', icon: Terminal },
-                { id: 'advanced', label: 'Advanced', icon: Code },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -431,118 +365,6 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
           )}
           
-          {/* Permissions Settings */}
-          {activeTab === 'permissions' && (
-            <div className="bg-card border border-border rounded-lg p-6">
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-base font-semibold mb-2">Permission Rules</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Control which tools Claude Code can use without manual approval
-                  </p>
-                </div>
-                
-                {/* Allow Rules */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-accent-foreground">Allow Rules</label>
-                    <button
-                      onClick={() => addPermissionRule('allow')}
-                      className="flex items-center gap-2 px-3 py-1 text-sm border border-accent text-accent-foreground rounded-md hover:bg-accent/10 transition-colors"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Add Rule
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    {allowRules.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">
-                        No allow rules configured. Claude will ask for approval for all tools.
-                      </p>
-                    ) : (
-                      allowRules.map((rule) => (
-                        <motion.div
-                          key={rule.id}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          className="flex items-center gap-2"
-                        >
-                          <input
-                            placeholder="e.g., Bash(npm run test:*)"
-                            value={rule.value}
-                            onChange={(e) => updatePermissionRule('allow', rule.id, e.target.value)}
-                            className="flex-1 px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-                          />
-                          <button
-                            onClick={() => removePermissionRule('allow', rule.id)}
-                            className="p-2 hover:bg-muted/50 rounded-md transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </motion.div>
-                      ))
-                    )}
-                  </div>
-                </div>
-                
-                {/* Deny Rules */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-destructive">Deny Rules</label>
-                    <button
-                      onClick={() => addPermissionRule('deny')}
-                      className="flex items-center gap-2 px-3 py-1 text-sm border border-destructive text-destructive rounded-md hover:bg-destructive/10 transition-colors"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Add Rule
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    {denyRules.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">
-                        No deny rules configured.
-                      </p>
-                    ) : (
-                      denyRules.map((rule) => (
-                        <motion.div
-                          key={rule.id}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          className="flex items-center gap-2"
-                        >
-                          <input
-                            placeholder="e.g., Bash(curl:*)"
-                            value={rule.value}
-                            onChange={(e) => updatePermissionRule('deny', rule.id, e.target.value)}
-                            className="flex-1 px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-                          />
-                          <button
-                            onClick={() => removePermissionRule('deny', rule.id)}
-                            className="p-2 hover:bg-muted/50 rounded-md transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </motion.div>
-                      ))
-                    )}
-                  </div>
-                </div>
-                
-                <div className="pt-2 space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    <strong>Examples:</strong>
-                  </p>
-                  <ul className="text-xs text-muted-foreground space-y-1 ml-4">
-                    <li>• <code className="px-1 py-0.5 rounded bg-accent/10 text-accent-foreground">Bash</code> - Allow all bash commands</li>
-                    <li>• <code className="px-1 py-0.5 rounded bg-accent/10 text-accent-foreground">Bash(npm run build)</code> - Allow exact command</li>
-                    <li>• <code className="px-1 py-0.5 rounded bg-accent/10 text-accent-foreground">Bash(npm run test:*)</code> - Allow commands with prefix</li>
-                    <li>• <code className="px-1 py-0.5 rounded bg-accent/10 text-accent-foreground">Read(~/.zshrc)</code> - Allow reading specific file</li>
-                    <li>• <code className="px-1 py-0.5 rounded bg-accent/10 text-accent-foreground">Edit(docs/**)</code> - Allow editing files in docs directory</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
           
           {/* Environment Variables */}
           {activeTab === 'environment' && (
@@ -615,44 +437,6 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
           )}
 
-          {/* Advanced Settings */}
-          {activeTab === 'advanced' && (
-            <div className="bg-card border border-border rounded-lg p-6">
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-base font-semibold mb-4">Advanced Settings</h3>
-                  <p className="text-sm text-muted-foreground mb-6">
-                    Additional configuration options for advanced users
-                  </p>
-                </div>
-                
-                {/* API Key Helper */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">API Key Helper Script</label>
-                  <input
-                    placeholder="/path/to/generate_api_key.sh"
-                    value={settings?.apiKeyHelper || ''}
-                    onChange={(e) => updateSetting('apiKeyHelper', e.target.value || undefined)}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Custom script to generate auth values for API requests
-                  </p>
-                </div>
-                
-                {/* Raw JSON Editor */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Raw Settings (JSON)</label>
-                  <div className="p-3 rounded-md bg-muted/50 font-mono text-xs overflow-x-auto whitespace-pre-wrap">
-                    <pre>{JSON.stringify(settings, null, 2)}</pre>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    This shows the raw JSON that will be saved to ~/.claude/settings.json
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

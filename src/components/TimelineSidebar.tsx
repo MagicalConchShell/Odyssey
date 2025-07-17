@@ -13,8 +13,8 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 
-import { GitTimelineTree, type GitTimelineTreeRef } from './GitTimelineTree'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { ModernTimelineTree, type ModernTimelineTreeRef } from './ModernTimelineTree'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,7 +31,7 @@ interface TimelineSidebarProps {
   onCheckpointDelete?: (checkpointId: string) => Promise<void>
   onSidebarWidthChange?: (width: number) => void
   className?: string
-  onTimelineRef?: (ref: GitTimelineTreeRef | null) => void
+  onTimelineRef?: (ref: ModernTimelineTreeRef | null) => void
 }
 
 /**
@@ -55,7 +55,7 @@ export function TimelineSidebar({
   onTimelineRef
 }: TimelineSidebarProps) {
   // Timeline tree ref
-  const timelineTreeRef = useRef<GitTimelineTreeRef>(null)
+  const timelineTreeRef = useRef<ModernTimelineTreeRef>(null)
   
   // Detect screen size
   const [isSmallScreen, setIsSmallScreen] = useState(() => {
@@ -677,13 +677,14 @@ export function TimelineSidebar({
           {/* Timeline Content */}
           <div className="flex-1 overflow-hidden">
             {projectPath ? (
-              <div className="h-full overflow-auto">
-                <GitTimelineTree
+              <div className="h-full">
+                <ModernTimelineTree
                   ref={timelineTreeRef}
                   projectPath={projectPath}
                   onCheckpointRestore={onCheckpointRestore}
                   onCheckpointDelete={onCheckpointDelete}
                   compact={isCollapsed}
+                  className="h-full"
                 />
               </div>
             ) : (
@@ -705,6 +706,9 @@ export function TimelineSidebar({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create Checkpoint</DialogTitle>
+            <DialogDescription>
+              Create a snapshot of your current project state. This allows you to save your progress and return to this exact state later if needed.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -764,6 +768,9 @@ export function TimelineSidebar({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create Branch</DialogTitle>
+            <DialogDescription>
+              Create a new branch from the current HEAD. This allows you to work on features or experiments without affecting the main branch.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>

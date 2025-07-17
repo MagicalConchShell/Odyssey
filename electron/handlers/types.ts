@@ -6,6 +6,7 @@ export interface ApiResponse<T = any> {
   success: boolean
   error?: string
   data?: T
+  meta?: any // For additional metadata like recovery suggestions
 }
 
 export interface FileResponse {
@@ -159,6 +160,15 @@ export interface ClaudeMdFile {
   modified: number
 }
 
+export interface FileTreeItem {
+  path: string
+  fullPath: string
+  isDirectory: boolean
+  size: number
+  modified: string
+  children?: FileTreeItem[]
+}
+
 export interface ProjectStats {
   fileCount: number
   totalSize: number
@@ -265,4 +275,27 @@ export interface GitStorageStats {
   objectCount: number
   branchCount: number
   commitCount: number
+}
+
+// ===================
+// Git Status Types
+// ===================
+
+export interface GitFileStatus {
+  path: string
+  status: 'modified' | 'untracked' | 'deleted' | 'staged'
+}
+
+export interface GitStatusSummary {
+  staged: number
+  unstaged: number
+  untracked: number
+  modified: number
+  added: number
+  deleted: number
+}
+
+export interface GitStatusResult {
+  files: GitFileStatus[]
+  summary: GitStatusSummary
 }

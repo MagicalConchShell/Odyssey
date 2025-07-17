@@ -36,7 +36,6 @@ interface ProjectContextSidebarProps {
   selectedCheckpoint?: string | null
   activeTab: 'changes' | 'files' | 'settings'
   onTabChange: (tab: 'changes' | 'files' | 'settings') => void
-  onWidthChange?: (width: number) => void
   project?: Project
   className?: string
 }
@@ -46,7 +45,6 @@ export const ProjectContextSidebar: React.FC<ProjectContextSidebarProps> = ({
                                                                               selectedCheckpoint,
                                                                               activeTab,
                                                                               onTabChange,
-                                                                              onWidthChange,
                                                                               project,
                                                                               className
                                                                             }) => {
@@ -73,12 +71,6 @@ export const ProjectContextSidebar: React.FC<ProjectContextSidebarProps> = ({
   // Calculate sidebar width
   const sidebarWidth = isCollapsed ? 64 : 400
 
-  // Notify parent of width changes
-  useEffect(() => {
-    if (onWidthChange) {
-      onWidthChange(sidebarWidth)
-    }
-  }, [sidebarWidth, onWidthChange])
 
   // Load file changes when checkpoint is selected
   useEffect(() => {

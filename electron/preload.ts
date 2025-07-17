@@ -8,6 +8,7 @@ import {
   GitFileInfo,
   GitDiff,
   GitStorageStats,
+  GitStatusResult,
   ProjectStats,
   Session,
   FileResponse,
@@ -41,6 +42,9 @@ export interface IElectronAPI {
     close: (sessionId: string) => Promise<ApiResponse<void>>;
     info: (sessionId: string) => Promise<ApiResponse<{ isActive: boolean; workingDirectory: string; shell: string }>>;
     list: () => Promise<ApiResponse<string[]>>;
+    pause: (sessionId: string) => Promise<ApiResponse<void>>;
+    resume: (sessionId: string) => Promise<ApiResponse<void>>;
+    getState: (sessionId: string) => Promise<ApiResponse<any>>;
   };
 
   // Claude CLI handlers
@@ -61,6 +65,8 @@ export interface IElectronAPI {
     findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
     readClaudeMdFile: (filePath: string) => Promise<FileResponse>;
     saveClaudeMdFile: (filePath: string, content: string) => Promise<FileResponse>;
+    startFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
+    stopFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
   };
 
   // Event listeners
@@ -115,6 +121,7 @@ export interface IElectronAPI {
     getStorageStats: (projectPath: string) => Promise<ApiResponse<GitStorageStats>>;
     garbageCollect: (projectPath: string) => Promise<ApiResponse<void>>;
     optimizeStorage: (projectPath: string) => Promise<ApiResponse<void>>;
+    getGitStatus: (projectPath: string) => Promise<ApiResponse<GitStatusResult>>;
   };
 
   // Project management handlers
@@ -152,6 +159,9 @@ const electronAPI: IElectronAPI = {
     close: (sessionId) => ipcRenderer.invoke('terminal:close', sessionId),
     info: (sessionId) => ipcRenderer.invoke('terminal:info', sessionId),
     list: () => ipcRenderer.invoke('terminal:list'),
+    pause: (sessionId) => ipcRenderer.invoke('terminal:pause', sessionId),
+    resume: (sessionId) => ipcRenderer.invoke('terminal:resume', sessionId),
+    getState: (sessionId) => ipcRenderer.invoke('terminal:getState', sessionId),
   },
 
   // Claude CLI handlers
@@ -172,6 +182,8 @@ const electronAPI: IElectronAPI = {
     findClaudeMdFiles: (directory) => ipcRenderer.invoke('find-claude-md-files', directory),
     readClaudeMdFile: (filePath) => ipcRenderer.invoke('read-claude-md-file', filePath),
     saveClaudeMdFile: (filePath, content) => ipcRenderer.invoke('save-claude-md-file', filePath, content),
+    startFileSystemWatcher: (projectPath) => ipcRenderer.invoke('start-file-system-watcher', projectPath),
+    stopFileSystemWatcher: (projectPath) => ipcRenderer.invoke('stop-file-system-watcher', projectPath),
   },
 
   // Event listeners
@@ -226,6 +238,7 @@ const electronAPI: IElectronAPI = {
     getStorageStats: (projectPath) => ipcRenderer.invoke('git-checkpoint:getStorageStats', projectPath),
     garbageCollect: (projectPath) => ipcRenderer.invoke('git-checkpoint:garbageCollect', projectPath),
     optimizeStorage: (projectPath) => ipcRenderer.invoke('git-checkpoint:optimizeStorage', projectPath),
+    getGitStatus: (projectPath) => ipcRenderer.invoke('git-checkpoint:getGitStatus', projectPath),
   },
 
   // Project management handlers

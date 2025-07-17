@@ -22,6 +22,7 @@ export type {
   GitFileInfo,
   GitDiff,
   GitStorageStats,
+  GitStatusResult,
   ScreenshotResponse,
   ProjectCreateRequest,
   ProjectUpdateRequest,
@@ -61,12 +62,15 @@ declare global {
 
       // Terminal handlers
       terminal: {
-        create: (workingDirectory: string, shell?: string) => Promise<ApiResponse<{ sessionId: string }>>;
+        create: (workingDirectory: string, shell?: string, projectPath?: string) => Promise<ApiResponse<{ sessionId: string }>>;
         write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
         resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
         close: (sessionId: string) => Promise<ApiResponse<void>>;
         info: (sessionId: string) => Promise<ApiResponse<any>>;
         list: () => Promise<ApiResponse<any[]>>;
+        pause: (sessionId: string) => Promise<ApiResponse<void>>;
+        resume: (sessionId: string) => Promise<ApiResponse<void>>;
+        getState: (sessionId: string) => Promise<ApiResponse<any>>;
       };
 
       // Event listeners
@@ -91,6 +95,8 @@ declare global {
         findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
         readClaudeMdFile: (filePath: string) => Promise<FileResponse>;
         saveClaudeMdFile: (filePath: string, content: string) => Promise<FileResponse>;
+        startFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
+        stopFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
       };
 
       // Settings handlers
@@ -148,6 +154,7 @@ declare global {
         getStorageStats: (projectPath: string) => Promise<ApiResponse<GitStorageStats>>;
         garbageCollect: (projectPath: string) => Promise<ApiResponse<void>>;
         optimizeStorage: (projectPath: string) => Promise<ApiResponse<void>>;
+        getGitStatus: (projectPath: string) => Promise<ApiResponse<GitStatusResult>>;
       };
 
       // Project management handlers

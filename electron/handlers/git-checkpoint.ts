@@ -1,7 +1,7 @@
 import {IpcMain} from 'electron';
 import {GitCheckpointStorage} from '../git-checkpoint-storage.js';
 import {registerHandler} from './base-handler.js';
-import {ApiResponse, GitBranch, GitDiff, GitFileInfo, GitHistory, GitStorageStats} from './types.js';
+import {ApiResponse, GitBranch, GitDiff, GitFileInfo, GitHistory, GitStorageStats, GitStatusResult} from './types.js';
 import type {
   BranchInfo,
   CheckoutOptions,
@@ -384,6 +384,169 @@ async function optimizeStorage(
 }
 
 /**
+ * Get git status - compare current working directory with last checkpoint
+ */
+async function getGitStatus(
+  projectPath: string
+): Promise<GitStatusResult> {
+  try {
+    const storage = new GitCheckpointStorage();
+    
+    // Get the current HEAD commit
+    const history = await storage.getHistory(projectPath);
+    if (history.length === 0) {
+      // No checkpoints yet, all files are new
+      return {
+        files: [],
+        summary: {
+          staged: 0,
+          unstaged: 0,
+          untracked: 0,
+          modified: 0,
+          added: 0,
+          deleted: 0
+        }
+      };
+    }
+
+    const lastCheckpoint = history[0]; // Most recent checkpoint
+    
+    // Get files from last checkpoint
+    const checkpointFiles = await storage.listFiles(projectPath, lastCheckpoint.hash);
+    
+    // Get current working directory files
+    const currentFiles = await getAllFiles(projectPath);
+    
+    // Compare files and determine status
+    const fileStatuses = await compareFiles(checkpointFiles, currentFiles);
+    
+    // Calculate summary
+    const summary = {
+      staged: 0, // Not implemented yet
+      unstaged: fileStatuses.filter(f => f.status === 'modified' || f.status === 'deleted').length,
+      untracked: fileStatuses.filter(f => f.status === 'untracked').length,
+      modified: fileStatuses.filter(f => f.status === 'modified').length,
+      added: fileStatuses.filter(f => f.status === 'untracked').length,
+      deleted: fileStatuses.filter(f => f.status === 'deleted').length
+    };
+
+    return {
+      files: fileStatuses,
+      summary
+    };
+  } catch (error: any) {
+    console.warn('Failed to get git status:', error.message);
+    return {
+      files: [],
+      summary: {
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        modified: 0,
+        added: 0,
+        deleted: 0
+      }
+    };
+  }
+}
+
+/**
+ * Get all files in a directory recursively
+ */
+async function getAllFiles(dirPath: string): Promise<{path: string, size: number, hash: string}[]> {
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const crypto = await import('crypto');
+  
+  const files: {path: string, size: number, hash: string}[] = [];
+  
+  async function scanDirectory(currentPath: string, relativePath: string = '') {
+    try {
+      const entries = await fs.readdir(currentPath, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(currentPath, entry.name);
+        const relativeFile = relativePath ? path.join(relativePath, entry.name) : entry.name;
+        
+        // Skip common ignored directories
+        if (entry.isDirectory() && ['node_modules', '.git', 'dist', 'build', '.next', '.nuxt'].includes(entry.name)) {
+          continue;
+        }
+        
+        if (entry.isDirectory()) {
+          await scanDirectory(fullPath, relativeFile);
+        } else {
+          try {
+            const stats = await fs.stat(fullPath);
+            const content = await fs.readFile(fullPath);
+            const hash = crypto.createHash('sha256').update(content).digest('hex');
+            
+            files.push({
+              path: relativeFile,
+              size: stats.size,
+              hash
+            });
+          } catch (err) {
+            // Skip files that can't be read
+            console.warn(`Cannot read file ${fullPath}:`, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`Cannot scan directory ${currentPath}:`, err);
+    }
+  }
+  
+  await scanDirectory(dirPath);
+  return files;
+}
+
+/**
+ * Compare checkpoint files with current files
+ */
+async function compareFiles(
+  checkpointFiles: any[],
+  currentFiles: {path: string, size: number, hash: string}[]
+): Promise<{path: string, status: 'modified' | 'untracked' | 'deleted'}[]> {
+  const statuses: {path: string, status: 'modified' | 'untracked' | 'deleted'}[] = [];
+  
+  // Create maps for easier lookup
+  const checkpointMap = new Map(checkpointFiles.map(f => [f.path, f]));
+  const currentMap = new Map(currentFiles.map(f => [f.path, f]));
+  
+  // Check for modified and untracked files
+  for (const currentFile of currentFiles) {
+    const checkpointFile = checkpointMap.get(currentFile.path);
+    
+    if (!checkpointFile) {
+      // File doesn't exist in checkpoint, it's untracked
+      statuses.push({
+        path: currentFile.path,
+        status: 'untracked'
+      });
+    } else if (checkpointFile.hash !== currentFile.hash) {
+      // File exists but hash is different, it's modified
+      statuses.push({
+        path: currentFile.path,
+        status: 'modified'
+      });
+    }
+  }
+  
+  // Check for deleted files
+  for (const checkpointFile of checkpointFiles) {
+    if (!checkpointFile.isDirectory && !currentMap.has(checkpointFile.path)) {
+      statuses.push({
+        path: checkpointFile.path,
+        status: 'deleted'
+      });
+    }
+  }
+  
+  return statuses;
+}
+
+/**
  * Register all git checkpoint related IPC handlers
  */
 export function setupGitCheckpointHandlers(ipcMain: IpcMain): void {
@@ -506,5 +669,11 @@ export function setupGitCheckpointHandlers(ipcMain: IpcMain): void {
     optimizeStorage
   );
 
+  // Get git status
+  registerHandler(
+    ipcMain,
+    'git-checkpoint:getGitStatus',
+    getGitStatus
+  );
 
 }

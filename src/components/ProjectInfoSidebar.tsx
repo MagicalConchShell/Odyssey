@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 // Import timeline and file components
 import { GitTimelineTree, type GitTimelineTreeRef } from './GitTimelineTree'
@@ -32,7 +33,6 @@ interface ProjectInfoSidebarProps {
   selectedCheckpoint?: string | null
   activeTab: 'timeline' | 'files' | 'settings'
   onTabChange: (tab: 'timeline' | 'files' | 'settings') => void
-  onWidthChange?: (width: number) => void
   onCheckpointCreate?: (description: string) => Promise<void>
   onCheckpointRestore?: (commitHash: string) => Promise<void>
   onCheckpointDelete?: (commitHash: string) => Promise<void>
@@ -45,7 +45,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   selectedCheckpoint: _selectedCheckpoint,
   activeTab,
   onTabChange,
-  onWidthChange,
   onCheckpointCreate,
   onCheckpointRestore,
   onCheckpointDelete,
@@ -55,6 +54,10 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   const [projectFiles, setProjectFiles] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
+  // Checkpoint dialog state
+  const [checkpointDialogOpen, setCheckpointDialogOpen] = useState(false)
+  const [checkpointDescription, setCheckpointDescription] = useState('')
   
   // Timeline ref
   const timelineTreeRef = useRef<GitTimelineTreeRef>(null)
@@ -71,15 +74,10 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     terminalShell: undefined
   })
 
-  // Calculate sidebar width
-  const sidebarWidth = isCollapsed ? 64 : 400
-
-  // Notify parent of width changes
-  useEffect(() => {
-    if (onWidthChange) {
-      onWidthChange(sidebarWidth)
-    }
-  }, [sidebarWidth, onWidthChange])
+  // Fixed sidebar widths
+  const collapsedWidth = 64
+  const expandedWidth = 320
+  const currentWidth = isCollapsed ? collapsedWidth : expandedWidth
 
 
   // Load project files when files tab is active
@@ -88,6 +86,78 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
       loadProjectFiles()
     }
   }, [activeTab, projectPath])
+
+  // Start file system watcher when project path changes
+  useEffect(() => {
+    if (projectPath) {
+      console.log('[ProjectInfoSidebar] Starting file system watcher for:', projectPath)
+      window.electronAPI.fileSystem.startFileSystemWatcher(projectPath)
+        .then(() => {
+          console.log('[ProjectInfoSidebar] File system watcher started successfully')
+        })
+        .catch((error) => {
+          console.error('[ProjectInfoSidebar] Failed to start file system watcher:', error)
+        })
+    }
+
+    return () => {
+      if (projectPath) {
+        console.log('[ProjectInfoSidebar] Stopping file system watcher for:', projectPath)
+        window.electronAPI.fileSystem.stopFileSystemWatcher(projectPath)
+          .catch((error) => {
+            console.error('[ProjectInfoSidebar] Failed to stop file system watcher:', error)
+          })
+      }
+    }
+  }, [projectPath])
+
+  // Listen for file system changes
+  useEffect(() => {
+    const handleFileSystemChange = (_event: any, data: { projectPath: string }) => {
+      console.log('[ProjectInfoSidebar] File system changed:', data)
+      if (data.projectPath === projectPath && activeTab === 'files') {
+        console.log('[ProjectInfoSidebar] Refreshing files due to file system change')
+        loadProjectFiles()
+      }
+    }
+
+    if (window.electronAPI.on) {
+      window.electronAPI.on('file-system-changed', handleFileSystemChange)
+    }
+
+    return () => {
+      if (window.electronAPI.removeListener) {
+        window.electronAPI.removeListener('file-system-changed', handleFileSystemChange)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, activeTab])
+
+  // Debug logging for projectFiles state changes
+  useEffect(() => {
+    console.log('[ProjectInfoSidebar] projectFiles state changed:', projectFiles)
+    console.log('[ProjectInfoSidebar] projectFiles.length:', projectFiles.length)
+    console.log('[ProjectInfoSidebar] activeTab:', activeTab)
+  }, [projectFiles, activeTab])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle shortcuts when not in input fields
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // Handle Ctrl/Cmd + K for Create Checkpoint
+      if ((event.ctrlKey || event.metaKey) && event.key === 'k' && onCheckpointCreate && activeTab === 'timeline') {
+        event.preventDefault()
+        setCheckpointDialogOpen(true)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onCheckpointCreate, activeTab])
 
   // Load project settings when settings tab is active
   useEffect(() => {
@@ -98,26 +168,75 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
 
 
   const loadProjectFiles = async () => {
-    if (!projectPath) return
+    console.log('[ProjectInfoSidebar] loadProjectFiles called with projectPath:', projectPath)
+    
+    if (!projectPath) {
+      console.log('[ProjectInfoSidebar] No projectPath provided, returning early')
+      setError('No project path provided')
+      return
+    }
+    
+    if (typeof projectPath !== 'string' || projectPath.trim() === '') {
+      console.log('[ProjectInfoSidebar] Invalid projectPath:', projectPath)
+      setError('Invalid project path')
+      return
+    }
 
     setLoading(true)
     setError(null)
 
     try {
-      // Load project file tree
-      const result = await window.electronAPI.fileSystem.readDirectory(projectPath)
+      // Load project file tree and git status in parallel
+      const [filesResult, gitStatusResult] = await Promise.all([
+        window.electronAPI.fileSystem.readDirectory(projectPath),
+        window.electronAPI.gitCheckpoint.getGitStatus(projectPath)
+      ])
 
-      if (result.success && result.data) {
-        setProjectFiles(result.data)
+      console.log('[ProjectInfoSidebar] readDirectory result:', filesResult)
+      console.log('[ProjectInfoSidebar] gitStatus result:', gitStatusResult)
+
+      if (filesResult.success && filesResult.data) {
+        console.log('[ProjectInfoSidebar] SUCCESS: Setting project files:', filesResult.data.length, 'items')
+        
+        // Merge git status with file data
+        const filesWithGitStatus = mergeGitStatusWithFiles(filesResult.data, gitStatusResult.data)
+        
+        setProjectFiles(filesWithGitStatus)
+        console.log('[ProjectInfoSidebar] State should be updated with:', filesWithGitStatus)
       } else {
+        console.log('[ProjectInfoSidebar] FAILED: No data or failed result, setting empty array')
+        console.log('[ProjectInfoSidebar] Result object:', filesResult)
         setProjectFiles([])
+        if (!filesResult.success) {
+          console.log('[ProjectInfoSidebar] Error from readDirectory:', filesResult.error)
+          setError(filesResult.error || 'Failed to read directory')
+        }
       }
     } catch (err: any) {
+      console.error('[ProjectInfoSidebar] Exception in loadProjectFiles:', err)
       setError(err.message || 'Failed to load project files')
       setProjectFiles([])
     } finally {
       setLoading(false)
     }
+  }
+
+  const mergeGitStatusWithFiles = (files: any[], gitStatusData: any) => {
+    if (!gitStatusData || !gitStatusData.files) {
+      return files
+    }
+
+    // Create a map of file paths to their git status
+    const gitStatusMap = new Map()
+    gitStatusData.files.forEach((file: any) => {
+      gitStatusMap.set(file.path, file.status)
+    })
+
+    // Add git status to each file
+    return files.map(file => ({
+      ...file,
+      gitStatus: gitStatusMap.get(file.path) || null
+    }))
   }
 
   const loadProjectSettings = async () => {
@@ -148,6 +267,14 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     console.log('File clicked:', item)
   }
 
+  const handleCreateCheckpoint = () => {
+    if (checkpointDescription.trim() && onCheckpointCreate) {
+      onCheckpointCreate(checkpointDescription.trim())
+      setCheckpointDialogOpen(false)
+      setCheckpointDescription('')
+    }
+  }
+
   // Handle tab click with toggle collapse functionality
   const handleTabClick = (tab: 'timeline' | 'files' | 'settings') => {
     if (activeTab === tab) {
@@ -161,11 +288,12 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
 
 
 
+
   return (
     <TooltipProvider>
       <motion.div
         initial={{ width: 0, opacity: 0 }}
-        animate={{ width: sidebarWidth, opacity: 1 }}
+        animate={{ width: currentWidth, opacity: 1 }}
         exit={{ width: 0, opacity: 0 }}
         transition={{ duration: 0.25, ease: [0.4, 0.0, 0.2, 1] }}
         className={clsx(
@@ -173,8 +301,8 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
           className
         )}
         style={{
-          minWidth: sidebarWidth,
-          maxWidth: sidebarWidth
+          minWidth: currentWidth,
+          maxWidth: currentWidth
         }}
       >
 
@@ -192,26 +320,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                 <button
                   onClick={() => {
                     setIsCollapsed(false)
-                    onTabChange('timeline')
-                  }}
-                  className={clsx(
-                    "w-10 h-10 flex items-center justify-center rounded-lg transition-colors",
-                    activeTab === 'timeline' ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-                  )}
-                >
-                  <GitBranch className="h-5 w-5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Git Timeline</p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => {
-                    setIsCollapsed(false)
                     onTabChange('files')
                   }}
                   className={clsx(
@@ -224,6 +332,26 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
               </TooltipTrigger>
               <TooltipContent side="right">
                 <p>Project Files</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => {
+                    setIsCollapsed(false)
+                    onTabChange('timeline')
+                  }}
+                  className={clsx(
+                    "w-10 h-10 flex items-center justify-center rounded-lg transition-colors",
+                    activeTab === 'timeline' ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                  )}
+                >
+                  <GitBranch className="h-5 w-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>Git Timeline</p>
               </TooltipContent>
             </Tooltip>
 
@@ -260,47 +388,62 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
           >
             {/* Navigation Button Bar */}
             <div className="flex flex-col border-r border-border bg-muted/20 py-2">
-              <button
-                onClick={() => handleTabClick('timeline')}
-                className={clsx(
-                  "flex flex-col items-center justify-center w-16 h-16 transition-colors",
-                  activeTab === 'timeline'
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-accent text-muted-foreground"
-                )}
-                title="Git Timeline"
-              >
-                <GitBranch className="h-5 w-5 mb-1" />
-                <span className="text-xs font-medium">Git</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleTabClick('files')}
+                    className={clsx(
+                      "flex items-center justify-center w-12 h-12 transition-colors",
+                      activeTab === 'files'
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-accent text-muted-foreground"
+                    )}
+                  >
+                    <FolderOpen className="h-5 w-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Project Files</p>
+                </TooltipContent>
+              </Tooltip>
               
-              <button
-                onClick={() => handleTabClick('files')}
-                className={clsx(
-                  "flex flex-col items-center justify-center w-16 h-16 transition-colors",
-                  activeTab === 'files'
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-accent text-muted-foreground"
-                )}
-                title="Project Files"
-              >
-                <FolderOpen className="h-5 w-5 mb-1" />
-                <span className="text-xs font-medium">Files</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleTabClick('timeline')}
+                    className={clsx(
+                      "flex items-center justify-center w-12 h-12 transition-colors",
+                      activeTab === 'timeline'
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-accent text-muted-foreground"
+                    )}
+                  >
+                    <GitBranch className="h-5 w-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Git Timeline</p>
+                </TooltipContent>
+              </Tooltip>
               
-              <button
-                onClick={() => handleTabClick('settings')}
-                className={clsx(
-                  "flex flex-col items-center justify-center w-16 h-16 transition-colors",
-                  activeTab === 'settings'
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-accent text-muted-foreground"
-                )}
-                title="Project Settings"
-              >
-                <Settings className="h-5 w-5 mb-1" />
-                <span className="text-xs font-medium">Settings</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleTabClick('settings')}
+                    className={clsx(
+                      "flex items-center justify-center w-12 h-12 transition-colors",
+                      activeTab === 'settings'
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-accent text-muted-foreground"
+                    )}
+                  >
+                    <Settings className="h-5 w-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Project Settings</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Content Area */}
@@ -309,25 +452,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
               {/* Git Timeline Content */}
               {activeTab === 'timeline' && (
                 <div className="h-full flex flex-col">
-                  {/* Quick Actions */}
-                  {onCheckpointCreate && (
-                    <div className="p-3 border-b border-border">
-                      <Button
-                        onClick={() => {
-                          const description = prompt('Enter checkpoint description:')
-                          if (description?.trim()) {
-                            onCheckpointCreate(description.trim())
-                          }
-                        }}
-                        className="w-full text-xs"
-                        size="sm"
-                      >
-                        <Plus className="h-3 w-3 mr-1" />
-                        Create Checkpoint
-                      </Button>
-                    </div>
-                  )}
-
                   {/* Timeline Content */}
                   <div className="flex-1 overflow-hidden">
                     {projectPath ? (
@@ -351,13 +475,51 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                       </div>
                     )}
                   </div>
+
+                  {/* Quick Actions - Moved to bottom */}
+                  {onCheckpointCreate && (
+                    <div className="p-3 border-t border-border">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={() => setCheckpointDialogOpen(true)}
+                            className="w-full text-xs"
+                            size="sm"
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Create Checkpoint
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Create a new checkpoint (Ctrl/Cmd+K)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Project Files Content */}
               {activeTab === 'files' && (
                 <div className="h-full flex flex-col">
+                  {/* Project Path Header */}
+                  {projectPath && (
+                    <div className="p-3 border-b border-border">
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground font-medium">Project Path</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={projectPath}>
+                        {projectPath.length > 50 ? '...' + projectPath.slice(-47) : projectPath}
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="flex-1 overflow-auto">
+                    {(() => {
+                      console.log('[ProjectInfoSidebar] Render condition check - loading:', loading, 'error:', error, 'projectFiles.length:', projectFiles.length);
+                      return null;
+                    })()}
                     {loading ? (
                       <div className="flex items-center justify-center h-32">
                         <div className="text-center">
@@ -374,17 +536,31 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                       </div>
                     ) : projectFiles.length > 0 ? (
                       <div className="p-2">
+                        {(() => {
+                          console.log('[ProjectInfoSidebar] Rendering FileTree with items:', projectFiles);
+                          return null;
+                        })()}
                         <FileTree
                           items={projectFiles}
                           onItemClick={handleFileClick}
                           className="text-xs"
+                          showGitStatus={true}
                         />
                       </div>
                     ) : (
-                      <div className="flex items-center justify-center h-32 text-center">
+                      <div className="flex items-center justify-center h-32 text-center p-4">
+                        {(() => {
+                          console.log('[ProjectInfoSidebar] Showing empty state. projectFiles:', projectFiles, 'length:', projectFiles.length, 'loading:', loading, 'error:', error);
+                          return null;
+                        })()}
                         <div>
                           <FolderOpen className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                          <p className="text-xs text-muted-foreground">No files found</p>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            {!projectPath ? 'No project path set' : `No files found in directory (${projectFiles.length} items in state)`}
+                          </p>
+                          <p className="text-xs text-muted-foreground/70">
+                            {projectPath && `Path: ${projectPath}`}
+                          </p>
                         </div>
                       </div>
                     )}
@@ -489,6 +665,56 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
             </div>
           </motion.div>
         )}
+        
+        
+        {/* Checkpoint Creation Dialog */}
+        <Dialog open={checkpointDialogOpen} onOpenChange={setCheckpointDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Create Checkpoint</DialogTitle>
+              <DialogDescription>
+                Create a snapshot of your current project state to save your progress.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="description" className="text-right">
+                  Description
+                </Label>
+                <Input
+                  id="description"
+                  value={checkpointDescription}
+                  onChange={(e) => setCheckpointDescription(e.target.value)}
+                  className="col-span-3"
+                  placeholder="Enter checkpoint description..."
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && checkpointDescription.trim()) {
+                      handleCreateCheckpoint()
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setCheckpointDialogOpen(false)
+                  setCheckpointDescription('')
+                }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleCreateCheckpoint}
+                disabled={!checkpointDescription.trim()}
+              >
+                Create
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </TooltipProvider>
   )

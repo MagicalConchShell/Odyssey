@@ -1,13 +1,17 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import clsx from 'clsx'
 
 // Import components
 import { TerminalWelcome } from './TerminalWelcome'
-import { RealTerminal } from './RealTerminal'
+import { TerminalTabs } from './TerminalTabs'
+import { Terminal } from './Terminal'
 
-// Import state management
-import { useTerminal } from '@/lib/projectState'
+// Import simplified state management
+import { useSimpleTerminalStore, useSimpleActiveTerminal, useSimpleHasTerminals } from '@/hooks/useSimpleTerminalStore'
+import { useTerminalMode } from '@/lib/projectState'
+import { terminalEventManager } from '@/lib/TerminalEventManager'
+import { useSimpleTerminalPersistence } from '@/hooks/useSimpleTerminalPersistence'
 
 // Types
 import type { Project } from '@/lib/projectState'
@@ -15,41 +19,88 @@ import type { Project } from '@/lib/projectState'
 interface TerminalContainerProps {
   projectPath: string
   project?: Project
-  mode: 'welcome' | 'active'
-  selectedAIModel: 'claude-code' | 'gemini' | null
   className?: string
 }
 
 export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   projectPath,
   project,
-  mode,
-  selectedAIModel,
   className
 }) => {
-  const {
-    setTerminalSessionId,
-    setTerminalMode, 
-    setSelectedAIModel 
-  } = useTerminal()
+  // Terminal state from simplified Zustand store
+  const { terminals, activeTerminalId, createTerminal, clearAll } = useSimpleTerminalStore()
+  const activeTerminal = useSimpleActiveTerminal()
+  const hasTerminals = useSimpleHasTerminals()
+  
+  // Terminal mode from simplified project state
+  const { terminalMode, setTerminalMode } = useTerminalMode()
+  
+  // Simplified session persistence
+  const { cleanup, isRestoring } = useSimpleTerminalPersistence({
+    projectPath,
+    autoSave: true,
+    autoRestore: true,
+    saveDebounceMs: 1000
+  })
 
-  // Handle AI model selection
-  const handleModelSelect = useCallback((model: 'claude-code' | 'gemini') => {
-    setSelectedAIModel(model)
+  // Handle AI model selection from welcome screen
+  const handleModelSelect = useCallback((model: 'claude-code' | 'gemini' | 'terminal') => {
+    console.log('Creating terminal:', { model, projectPath })
+    
+    // Create terminal using Zustand store
+    createTerminal({
+      type: model,
+      cwd: projectPath,
+      makeActive: true
+    })
+    
+    // Switch to active mode
     setTerminalMode('active')
-  }, [setSelectedAIModel, setTerminalMode])
+  }, [createTerminal, projectPath, setTerminalMode])
 
-  // Handle terminal ready
-  const handleTerminalReady = useCallback(() => {
-    console.log('Terminal is ready')
+  // Auto-switch to welcome mode when no terminals
+  useEffect(() => {
+    if (!hasTerminals && terminalMode === 'active') {
+      setTerminalMode('welcome')
+    }
+  }, [hasTerminals, terminalMode, setTerminalMode])
+
+  // Cleanup terminals when project changes
+  useEffect(() => {
+    return () => {
+      // Clean up terminal event manager
+      terminalEventManager.cleanup()
+      // Clean up persistence
+      cleanup()
+      // Clear all terminals
+      clearAll()
+    }
+  }, [projectPath, clearAll, cleanup])
+
+  // Global cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      console.log('[TerminalContainer] Component unmounting, cleaning up all terminals')
+      terminalEventManager.cleanup()
+      cleanup()
+      clearAll()
+    }
+  }, [cleanup, clearAll])
+
+  // Global keyboard shortcuts for performance monitoring
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Shift+P or Cmd+Shift+P to open performance monitor
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+        e.preventDefault()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
-
-  // Handle terminal exit
-  const handleTerminalExit = useCallback(() => {
-    setTerminalSessionId(null)
-    setTerminalMode('welcome')
-    setSelectedAIModel(null)
-  }, [setTerminalSessionId, setTerminalMode, setSelectedAIModel])
 
   // Ensure we have a project path before rendering terminal
   if (!projectPath) {
@@ -72,8 +123,18 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
 
   return (
     <div className={clsx("flex flex-col h-full", className)}>
+      {/* Optional restoration indicator - only shows during background restoration */}
+      {projectPath && isRestoring && (
+        <div className="absolute top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b">
+          <div className="flex items-center justify-center h-8 text-sm text-muted-foreground">
+            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
+            Restoring terminal sessions in background...
+          </div>
+        </div>
+      )}
+      
       <AnimatePresence mode="wait">
-        {mode === 'welcome' ? (
+        {terminalMode === 'welcome' ? (
           <motion.div
             key="welcome"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -91,21 +152,41 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
           </motion.div>
         ) : (
           <motion.div
-            key="terminal"
+            key="active"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3 }}
-            className="flex-1"
+            className="flex-1 flex flex-col"
           >
-            <RealTerminal
-              project={project}
+            {/* Terminal tabs */}
+            <TerminalTabs 
               projectPath={projectPath}
-              selectedAIModel={selectedAIModel}
-              onTerminalReady={handleTerminalReady}
-              onTerminalExit={handleTerminalExit}
-              className="flex-1"
+              onNewTab={handleModelSelect}
             />
+            
+            {/* All terminals - show/hide based on active state */}
+            <div className="flex-1 relative">
+              {terminals.map((terminal) => (
+                <Terminal
+                  key={terminal.id}
+                  terminalId={terminal.id}
+                  className={`absolute inset-0 ${
+                    terminal.id === activeTerminalId ? 'block' : 'hidden'
+                  }`}
+                />
+              ))}
+              {!activeTerminal && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center space-y-2">
+                    <div className="text-muted-foreground">No active terminal</div>
+                    <div className="text-sm text-muted-foreground">
+                      Create a new terminal to get started
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
-import { join } from 'path'
-import { app } from 'electron'
+import {join} from 'path'
+import {homedir} from 'os'
+import {existsSync, mkdirSync} from 'fs'
 
 
 export interface UsageEntry {
@@ -29,6 +30,18 @@ export interface Project {
   updated_at: number
 }
 
+export interface TerminalSession {
+  id: string
+  project_path: string
+  working_directory: string
+  shell: string
+  environment_vars: string // JSON string of env vars
+  title?: string
+  is_active: boolean
+  created_at: number
+  last_used: number
+  pid?: number // Process ID when active
+}
 
 
 /**
@@ -41,8 +54,8 @@ class DatabaseManager {
   private dbPath: string
 
   constructor() {
-    const userDataPath = app.getPath('userData')
-    this.dbPath = join(userDataPath, 'odyssey.db')
+    const odysseyDir = join(homedir(), '.odyssey')
+    this.dbPath = join(odysseyDir, 'odyssey.db')
   }
 
   /**
@@ -51,6 +64,9 @@ class DatabaseManager {
    */
   initialize(): void {
     if (this.db) return
+
+    // Ensure .odyssey directory exists
+    this.ensureOdysseyDirectory()
 
     this.db = new Database(this.dbPath)
     this.db.pragma('journal_mode = WAL')
@@ -70,56 +86,199 @@ class DatabaseManager {
 
     // Create projects table
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        path TEXT NOT NULL UNIQUE,
-        type TEXT NOT NULL DEFAULT 'manual',
-        last_opened INTEGER NOT NULL,
-        is_pinned BOOLEAN DEFAULT FALSE,
-        tags TEXT,
-        claude_project_id TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      )
+        CREATE TABLE IF NOT EXISTS projects
+        (
+            id
+            TEXT
+            PRIMARY
+            KEY,
+            name
+            TEXT
+            NOT
+            NULL,
+            path
+            TEXT
+            NOT
+            NULL
+            UNIQUE,
+            type
+            TEXT
+            NOT
+            NULL
+            DEFAULT
+            'manual',
+            last_opened
+            INTEGER
+            NOT
+            NULL,
+            is_pinned
+            BOOLEAN
+            DEFAULT
+            FALSE,
+            tags
+            TEXT,
+            claude_project_id
+            TEXT,
+            created_at
+            INTEGER
+            NOT
+            NULL,
+            updated_at
+            INTEGER
+            NOT
+            NULL
+        )
     `)
 
     // Create usage_data table
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS usage_data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT NOT NULL,
-        model TEXT NOT NULL,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-        cost REAL NOT NULL DEFAULT 0.0,
-        session_id TEXT NOT NULL,
-        project_path TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
+        CREATE TABLE IF NOT EXISTS usage_data
+        (
+            id
+            INTEGER
+            PRIMARY
+            KEY
+            AUTOINCREMENT,
+            timestamp
+            TEXT
+            NOT
+            NULL,
+            model
+            TEXT
+            NOT
+            NULL,
+            input_tokens
+            INTEGER
+            NOT
+            NULL
+            DEFAULT
+            0,
+            output_tokens
+            INTEGER
+            NOT
+            NULL
+            DEFAULT
+            0,
+            cache_creation_tokens
+            INTEGER
+            NOT
+            NULL
+            DEFAULT
+            0,
+            cache_read_tokens
+            INTEGER
+            NOT
+            NULL
+            DEFAULT
+            0,
+            cost
+            REAL
+            NOT
+            NULL
+            DEFAULT
+            0.0,
+            session_id
+            TEXT
+            NOT
+            NULL,
+            project_path
+            TEXT
+            NOT
+            NULL,
+            created_at
+            TEXT
+            NOT
+            NULL
+            DEFAULT
+            CURRENT_TIMESTAMP
+        )
+    `)
+
+    // Create terminal_sessions table for persistence
+    this.db.exec(`
+        CREATE TABLE IF NOT EXISTS terminal_sessions
+        (
+            id
+            TEXT
+            PRIMARY
+            KEY,
+            project_path
+            TEXT
+            NOT
+            NULL,
+            working_directory
+            TEXT
+            NOT
+            NULL,
+            shell
+            TEXT
+            NOT
+            NULL,
+            environment_vars
+            TEXT
+            NOT
+            NULL
+            DEFAULT
+            '{}',
+            title
+            TEXT,
+            is_active
+            BOOLEAN
+            NOT
+            NULL
+            DEFAULT
+            TRUE,
+            created_at
+            INTEGER
+            NOT
+            NULL,
+            last_used
+            INTEGER
+            NOT
+            NULL,
+            pid
+            INTEGER
+        )
     `)
 
     // Create indexes for better performance
     this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_usage_data_session_id ON usage_data(session_id);
-      CREATE INDEX IF NOT EXISTS idx_usage_data_timestamp ON usage_data(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_projects_last_opened ON projects(last_opened);
-      CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type);
+        CREATE INDEX IF NOT EXISTS idx_usage_data_session_id ON usage_data(session_id);
+        CREATE INDEX IF NOT EXISTS idx_usage_data_timestamp ON usage_data(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_projects_last_opened ON projects(last_opened);
+        CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type);
+        CREATE INDEX IF NOT EXISTS idx_terminal_sessions_project_path ON terminal_sessions(project_path);
+        CREATE INDEX IF NOT EXISTS idx_terminal_sessions_is_active ON terminal_sessions(is_active);
+        CREATE INDEX IF NOT EXISTS idx_terminal_sessions_last_used ON terminal_sessions(last_used);
     `)
 
   }
 
+  /**
+   * Ensures the .odyssey directory exists in the user's home directory.
+   */
+  private ensureOdysseyDirectory(): void {
+    const odysseyDir = join(homedir(), '.odyssey')
 
+    if (!existsSync(odysseyDir)) {
+      try {
+        mkdirSync(odysseyDir, {recursive: true})
+        console.log(`Created .odyssey directory at: ${odysseyDir}`)
+      } catch (error) {
+        console.error(`Failed to create .odyssey directory: ${error}`)
+        throw new Error(`Failed to create .odyssey directory: ${error}`)
+      }
+    }
+  }
 
   // Usage data operations
   createUsageEntry(entry: Omit<UsageEntry, 'id' | 'created_at'>): UsageEntry {
     if (!this.db) throw new Error('Database not initialized')
 
     const stmt = this.db.prepare(`
-      INSERT INTO usage_data (timestamp, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost, session_id, project_path)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO usage_data (timestamp, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+                                cost, session_id, project_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const result = stmt.run(
@@ -157,8 +316,9 @@ class DatabaseManager {
 
     const now = Date.now()
     const stmt = this.db.prepare(`
-      INSERT INTO projects (id, name, path, type, last_opened, is_pinned, tags, claude_project_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO projects (id, name, path, type, last_opened, is_pinned, tags, claude_project_id, created_at,
+                              updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
@@ -244,7 +404,9 @@ class DatabaseManager {
     values.push(Date.now())
     values.push(id)
 
-    const stmt = this.db.prepare(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`)
+    const stmt = this.db.prepare(`UPDATE projects
+                                  SET ${fields.join(', ')}
+                                  WHERE id = ?`)
     stmt.run(...values)
 
     return this.getProject(id)
@@ -285,9 +447,6 @@ class DatabaseManager {
   }
 
 
-
-
-
   /**
    * Get content hashes that are referenced by file snapshots (for storage cleanup)
    */
@@ -295,15 +454,144 @@ class DatabaseManager {
     if (!this.db) throw new Error('Database not initialized')
 
     const stmt = this.db.prepare(`
-      SELECT DISTINCT content_hash 
-      FROM file_snapshots 
-      WHERE is_deleted = 0
+        SELECT DISTINCT content_hash
+        FROM file_snapshots
+        WHERE is_deleted = 0
     `)
 
     const results = stmt.all() as Array<{ content_hash: string }>
     return results.map(r => r.content_hash)
   }
 
+  // Terminal session operations
+  createTerminalSession(session: Omit<TerminalSession, 'created_at' | 'last_used'>): TerminalSession {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const now = Date.now()
+    const stmt = this.db.prepare(`
+        INSERT INTO terminal_sessions (id, project_path, working_directory, shell, environment_vars, 
+                                     title, is_active, created_at, last_used, pid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    stmt.run(
+      session.id,
+      session.project_path,
+      session.working_directory,
+      session.shell,
+      session.environment_vars,
+      session.title || null,
+      session.is_active ? 1 : 0,
+      now,
+      now,
+      session.pid || null
+    )
+
+    return this.getTerminalSession(session.id)!
+  }
+
+  getTerminalSession(id: string): TerminalSession | null {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const stmt = this.db.prepare('SELECT * FROM terminal_sessions WHERE id = ?')
+    const result = stmt.get(id) as any
+
+    if (!result) return null
+
+    return {
+      ...result,
+      is_active: Boolean(result.is_active)
+    }
+  }
+
+  updateTerminalSession(id: string, updates: Partial<Pick<TerminalSession, 'working_directory' | 'is_active' | 'pid' | 'title' | 'last_used'>>): TerminalSession | null {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const fields = []
+    const values = []
+
+    if (updates.working_directory !== undefined) {
+      fields.push('working_directory = ?')
+      values.push(updates.working_directory)
+    }
+    if (updates.is_active !== undefined) {
+      fields.push('is_active = ?')
+      values.push(updates.is_active ? 1 : 0)
+    }
+    if (updates.pid !== undefined) {
+      fields.push('pid = ?')
+      values.push(updates.pid)
+    }
+    if (updates.title !== undefined) {
+      fields.push('title = ?')
+      values.push(updates.title)
+    }
+
+    if (fields.length === 0) return this.getTerminalSession(id)
+
+    fields.push('last_used = ?')
+    values.push(Date.now())
+    values.push(id)
+
+    const stmt = this.db.prepare(`UPDATE terminal_sessions
+                                  SET ${fields.join(', ')}
+                                  WHERE id = ?`)
+    stmt.run(...values)
+
+    return this.getTerminalSession(id)
+  }
+
+  getActiveTerminalSessions(): TerminalSession[] {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const stmt = this.db.prepare('SELECT * FROM terminal_sessions WHERE is_active = 1 ORDER BY last_used DESC')
+    const results = stmt.all() as any[]
+
+    return results.map(result => ({
+      ...result,
+      is_active: Boolean(result.is_active)
+    }))
+  }
+
+  getTerminalSessionsForProject(projectPath: string): TerminalSession[] {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const stmt = this.db.prepare('SELECT * FROM terminal_sessions WHERE project_path = ? ORDER BY last_used DESC')
+    const results = stmt.all(projectPath) as any[]
+
+    return results.map(result => ({
+      ...result,
+      is_active: Boolean(result.is_active)
+    }))
+  }
+
+  deactivateTerminalSession(id: string): boolean {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const stmt = this.db.prepare('UPDATE terminal_sessions SET is_active = 0, pid = NULL WHERE id = ?')
+    const result = stmt.run(id)
+
+    return result.changes > 0
+  }
+
+  deleteTerminalSession(id: string): boolean {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const stmt = this.db.prepare('DELETE FROM terminal_sessions WHERE id = ?')
+    const result = stmt.run(id)
+
+    return result.changes > 0
+  }
+
+  cleanupInactiveTerminalSessions(olderThanDays: number = 30): number {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const cutoffTime = Date.now() - (olderThanDays * 24 * 60 * 60 * 1000)
+    const stmt = this.db.prepare('DELETE FROM terminal_sessions WHERE is_active = 0 AND last_used < ?')
+    const result = stmt.run(cutoffTime)
+
+    return result.changes
+  }
 
   close(): void {
     if (this.db) {

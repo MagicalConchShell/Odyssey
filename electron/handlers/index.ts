@@ -24,7 +24,7 @@ export function setupAllHandlers(ipcMain: IpcMain): void {
   setupUsageAnalyticsHandlers(ipcMain);
   setupMcpHandlers(ipcMain);
   setupGitCheckpointHandlers(ipcMain);
-  setupTerminalHandlers();
+  setupTerminalHandlers(ipcMain);
   
   console.log('✅ All IPC handlers registered successfully');
 }

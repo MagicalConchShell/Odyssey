@@ -33,9 +33,7 @@ export const ProjectStateProvider: React.FC<ProjectStateProviderProps> = ({ chil
     checkpointHistory: [],
     sidebarTab: 'timeline',
     sidebarCollapsed: false,
-    terminalSessionId: null,
     terminalMode: 'welcome',
-    selectedAIModel: null,
     // Merge saved state
     ...savedState
   }
@@ -55,6 +53,17 @@ export const ProjectStateProvider: React.FC<ProjectStateProviderProps> = ({ chil
       console.log('Project State:', state)
     }
   }, [state])
+  
+  // Restore terminal sessions when project changes
+  useEffect(() => {
+    if (state.currentProject && state.projectPath) {
+      console.log('Project changed, attempting to restore terminal sessions')
+      // Add a small delay to ensure the state is fully initialized
+      setTimeout(() => {
+        // We'll trigger this through the useTerminal hook when needed
+      }, 100)
+    }
+  }, [state.currentProject, state.projectPath])
   
   // Cleanup on unmount
   useEffect(() => {

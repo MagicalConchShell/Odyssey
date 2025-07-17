@@ -1,10 +1,8 @@
 import type { GitCheckpointInfo, BranchInfo, TimelineTreeNode, ConnectionLine } from '../types/checkpoint';
 import { getBranchColor } from './branch-colors';
 
-// Constants for layout
-const NODE_HEIGHT = 48; // Height of each commit node in pixels
-const COLUMN_WIDTH = 30; // Width of each branch column in pixels
-const NODE_RADIUS = 4; // Radius of the commit circle
+// Enhanced layout constants for modern timeline visualization
+// Note: Layout constants are now handled in the rendering layer for better flexibility
 
 interface InternalGraphNode {
   checkpoint: GitCheckpointInfo;
@@ -22,6 +20,9 @@ interface InternalGraphNode {
   secondaryBranchNames: string[]; // Secondary branches (for merge commits)
   laneActive: boolean; // Whether this lane should remain active
   mergeParentLanes: number[]; // Lanes of merge parents
+  priority: number; // Priority for lane assignment (higher = more important)
+  commitDistance: number; // Distance from the tip of the branch
+  laneReservation: string | null; // Reserved lane for this branch
 }
 
 
@@ -65,6 +66,9 @@ export function calculateGitGraphLayout(
       secondaryBranchNames: [],
       laneActive: false,
       mergeParentLanes: [],
+      priority: 0, // Will be calculated
+      commitDistance: 0, // Distance from tip
+      laneReservation: null,
     };
     internalNodeMap.set(chkpt.hash, node);
   });
@@ -83,12 +87,40 @@ export function calculateGitGraphLayout(
     });
   });
 
-  // Enhanced lane management
+  // Enhanced lane management with priority system
   const activeLanes: (InternalGraphNode | null)[] = []; // Stores the node currently occupying a lane
   const branchLaneMap = new Map<string, number>(); // branchName -> columnIndex
   const laneReservation = new Map<number, string>(); // columnIndex -> branchName (for reserved lanes)
   const commitLaneMap = new Map<string, number>(); // commit hash -> lane index
+  const lanePriority = new Map<number, number>(); // columnIndex -> priority score
+  const branchCommitCount = new Map<string, number>(); // branchName -> commit count
   let maxColumns = 0;
+
+  // Calculate branch priorities based on commit count and recency
+  const calculateBranchPriorities = () => {
+    // Count commits per branch
+    checkpoints.forEach((checkpoint) => {
+      const branchName = branchHeadToNameMap.get(checkpoint.hash) || 'main';
+      branchCommitCount.set(branchName, (branchCommitCount.get(branchName) || 0) + 1);
+    });
+
+    // Assign priorities: main/master = highest, then by commit count
+    const priorityMap = new Map<string, number>();
+    priorityMap.set('main', 1000);
+    priorityMap.set('master', 1000);
+    
+    Array.from(branchCommitCount.entries())
+      .sort(([,a], [,b]) => b - a)
+      .forEach(([branchName, _count], index) => {
+        if (!priorityMap.has(branchName)) {
+          priorityMap.set(branchName, 900 - index * 10);
+        }
+      });
+
+    return priorityMap;
+  };
+
+  const branchPriorities = calculateBranchPriorities();
 
   // Assign branch colors consistently
   const branchColorCache = new Map<string, string>();
@@ -106,22 +138,27 @@ export function calculateGitGraphLayout(
 
     let assignedColumn = -1;
 
-    // Enhanced lane assignment logic
-    // 1. For branch heads, try to get a consistent lane
+    // Enhanced lane assignment logic with priority system
+    // 1. Calculate node priority
+    const branchName = branchHeadToNameMap.get(node.checkpoint.hash) || 
+                      (node.parents.length > 0 ? node.parents[0].primaryBranchName : null) || 
+                      'main';
+    node.priority = branchPriorities.get(branchName) || 100;
+    
+    // 2. For branch heads, reserve optimal lanes based on priority
     if (node.isHead) {
-      const branchName = branchHeadToNameMap.get(node.checkpoint.hash)!;
       node.primaryBranchName = branchName;
       
-      // Check if this branch already has a reserved lane
-      if (branchLaneMap.has(branchName)) {
-        const reservedLane = branchLaneMap.get(branchName)!;
-        if (activeLanes[reservedLane] === null) {
-          assignedColumn = reservedLane;
-        }
+      // Try to get the best lane for this branch based on priority
+      const preferredLane = findOptimalLaneForBranch(branchName, node.priority, activeLanes, lanePriority);
+      if (preferredLane !== -1 && (activeLanes[preferredLane] === null || 
+          (lanePriority.get(preferredLane) || 0) < node.priority)) {
+        assignedColumn = preferredLane;
+        branchLaneMap.set(branchName, assignedColumn);
       }
     }
 
-    // 2. For non-head commits, try to inherit from primary parent
+    // 3. For non-head commits, try to inherit from primary parent
     if (assignedColumn === -1 && node.parents.length > 0) {
       const primaryParent = node.parents[0];
       if (primaryParent.columnIndex !== -1) {
@@ -134,22 +171,34 @@ export function calculateGitGraphLayout(
       }
     }
 
-    // 3. Find the first available lane
-    if (assignedColumn === -1) {
-      const freeLaneIndex = activeLanes.findIndex(lane => lane === null);
-      if (freeLaneIndex !== -1) {
-        assignedColumn = freeLaneIndex;
-      } else {
-        // Create a new lane
-        assignedColumn = activeLanes.length;
-        activeLanes.push(null);
+    // 4. For merge commits, consider special placement
+    if (assignedColumn === -1 && node.isMergeCommit && node.parents.length > 1) {
+      // Try to place merge commits optimally between parent lanes
+      const parentLanes = node.parents.map(p => p.columnIndex).filter(lane => lane !== -1);
+      if (parentLanes.length > 1) {
+        const minLane = Math.min(...parentLanes);
+        const maxLane = Math.max(...parentLanes);
+        
+        // Try to find a lane between the parents
+        for (let lane = minLane; lane <= maxLane; lane++) {
+          if (activeLanes[lane] === null) {
+            assignedColumn = lane;
+            break;
+          }
+        }
       }
+    }
+
+    // 5. Find the best available lane
+    if (assignedColumn === -1) {
+      assignedColumn = findBestAvailableLane(activeLanes, node.priority, lanePriority);
     }
 
     // Assign column and update lane tracking
     node.columnIndex = assignedColumn;
     activeLanes[assignedColumn] = node;
     commitLaneMap.set(chkpt.hash, assignedColumn);
+    lanePriority.set(assignedColumn, node.priority);
 
     // Set branch name and color
     if (!node.primaryBranchName) {
@@ -164,6 +213,7 @@ export function calculateGitGraphLayout(
     
     node.branchName = node.primaryBranchName;
     node.color = getConsistentBranchColor(node.primaryBranchName);
+    node.laneReservation = node.primaryBranchName;
 
     // Handle merge commits - track parent lanes
     if (node.isMergeCommit) {
@@ -181,29 +231,32 @@ export function calculateGitGraphLayout(
 
     maxColumns = Math.max(maxColumns, node.columnIndex + 1);
 
-    // --- Generate Enhanced Connections ---
+    // --- Generate Enhanced Connections with Improved Paths ---
     node.parents.forEach((parentNode, parentIndex) => {
       const fromNode = node; // Current commit
       const toNode = parentNode; // Parent commit
 
-      const connectionType = getConnectionType(fromNode, toNode);
-      const pathData = generateConnectionPath(fromNode, toNode);
+      const connectionType = getConnectionType(fromNode, toNode, parentIndex);
       const strokeWidth = getConnectionStrokeWidth(connectionType);
       
-      // Use appropriate color based on connection type
+      // Enhanced color logic for better visual distinction
       let connectionColor = fromNode.color;
       if (connectionType === 'merge' && parentIndex > 0) {
         // For merge commits, use parent's color for secondary connections
         connectionColor = toNode.color;
+      } else if (connectionType === 'branch') {
+        // For branch connections, use appropriate color
+        connectionColor = fromNode.color;
       }
 
+      // Create connection with all necessary data
       connections.push({
         from: { rowIndex: fromNode.rowIndex, columnIndex: fromNode.columnIndex },
         to: { rowIndex: toNode.rowIndex, columnIndex: toNode.columnIndex },
         type: connectionType,
         color: connectionColor,
         strokeWidth: strokeWidth,
-        pathData: pathData,
+        // pathData will be generated during rendering for better performance
       });
     });
 
@@ -245,44 +298,76 @@ export function calculateGitGraphLayout(
   return { nodes: finalNodes, connections, maxColumns };
 }
 
+
 /**
- * Generates SVG path data for a connection line with improved curves.
- * @param fromNode The source node.
- * @param toNode The target node (parent).
- * @returns SVG path data string.
+ * Finds the optimal lane for a branch based on priority and current lane usage.
  */
-function generateConnectionPath(fromNode: InternalGraphNode, toNode: InternalGraphNode): string {
-  const fromX = fromNode.columnIndex * COLUMN_WIDTH + NODE_RADIUS;
-  const fromY = fromNode.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2;
-
-  const toX = toNode.columnIndex * COLUMN_WIDTH + NODE_RADIUS;
-  const toY = toNode.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2;
-
-  if (fromNode.columnIndex === toNode.columnIndex) {
-    // Straight vertical line for same column
-    return `M ${fromX} ${fromY} L ${toX} ${toY}`;
-  } else {
-    // Enhanced curved line for branching/merging
-    const deltaX = Math.abs(fromX - toX);
+function findOptimalLaneForBranch(
+  _branchName: string,
+  priority: number,
+  activeLanes: (InternalGraphNode | null)[],
+  lanePriority: Map<number, number>
+): number {
+  // Prefer lanes closer to the left for higher priority branches
+  const maxLanesToConsider = Math.min(activeLanes.length + 2, 10);
+  
+  for (let lane = 0; lane < maxLanesToConsider; lane++) {
+    if (lane >= activeLanes.length) {
+      // New lane
+      return lane;
+    }
     
-    // Adaptive curve control points for better visual flow
-    const curveStrength = Math.min(deltaX * 0.5, NODE_HEIGHT * 0.7);
+    if (activeLanes[lane] === null) {
+      // Available lane
+      return lane;
+    }
     
-    const controlPointX1 = fromX;
-    const controlPointY1 = fromY + curveStrength;
-
-    const controlPointX2 = toX;
-    const controlPointY2 = toY - curveStrength;
-
-    return `M ${fromX} ${fromY} C ${controlPointX1} ${controlPointY1}, ${controlPointX2} ${controlPointY2}, ${toX} ${toY}`;
+    // Check if we can take over this lane based on priority
+    const currentPriority = lanePriority.get(lane) || 0;
+    if (priority > currentPriority * 1.2) { // 20% priority boost needed to take over
+      return lane;
+    }
   }
+  
+  return -1; // No suitable lane found
 }
 
 /**
- * Generates connection type based on commit relationship
+ * Finds the best available lane considering priority and visual aesthetics.
  */
-function getConnectionType(fromNode: InternalGraphNode, toNode: InternalGraphNode): 'direct' | 'branch' | 'merge' {
-  if (fromNode.isMergeCommit && toNode !== fromNode.parents[0]) {
+function findBestAvailableLane(
+  activeLanes: (InternalGraphNode | null)[],
+  priority: number,
+  lanePriority: Map<number, number>
+): number {
+  // First, try to find an empty lane
+  const emptyLaneIndex = activeLanes.findIndex(lane => lane === null);
+  if (emptyLaneIndex !== -1) {
+    return emptyLaneIndex;
+  }
+  
+  // If no empty lanes, try to find a lane we can take over
+  for (let lane = 0; lane < activeLanes.length; lane++) {
+    const currentPriority = lanePriority.get(lane) || 0;
+    if (priority > currentPriority * 1.5) { // Need significant priority to take over
+      return lane;
+    }
+  }
+  
+  // Create a new lane
+  activeLanes.push(null);
+  return activeLanes.length - 1;
+}
+
+/**
+ * Enhanced connection type detection with parent index consideration
+ */
+function getConnectionType(
+  fromNode: InternalGraphNode, 
+  toNode: InternalGraphNode, 
+  parentIndex: number
+): 'direct' | 'branch' | 'merge' {
+  if (fromNode.isMergeCommit && parentIndex > 0) {
     return 'merge';
   }
   if (fromNode.columnIndex !== toNode.columnIndex) {
@@ -292,13 +377,13 @@ function getConnectionType(fromNode: InternalGraphNode, toNode: InternalGraphNod
 }
 
 /**
- * Determines optimal stroke width for connection
+ * Determines optimal stroke width for connection with enhanced visual hierarchy
  */
 function getConnectionStrokeWidth(connectionType: 'direct' | 'branch' | 'merge'): number {
   switch (connectionType) {
-    case 'direct': return 2;
-    case 'branch': return 1.5;
-    case 'merge': return 1.5;
-    default: return 1.5;
+    case 'direct': return 3; // Thickest for main branch lines
+    case 'branch': return 2.5; // Medium for branch connections
+    case 'merge': return 2; // Thinner for merge lines to avoid visual clutter
+    default: return 2.5;
   }
 }

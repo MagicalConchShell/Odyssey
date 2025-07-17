@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import clsx from 'clsx'
 
 // Import our new components
@@ -11,7 +11,7 @@ import {
   useProject, 
   useCheckpoints, 
   useUI,
-  useTerminal,
+  useTerminalMode,
   type Project
 } from '@/lib/projectState'
 
@@ -34,19 +34,25 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const { currentProject, projectPath, setProject, setProjectPath } = useProject()
   const { selectedCheckpoint, setSelectedCheckpoint } = useCheckpoints()
   const { sidebarTab, setSidebarTab } = useUI()
-  const { terminalMode, selectedAIModel } = useTerminal()
+  const { terminalMode: _mode } = useTerminalMode()
   
   // Local state
-  const [sidebarWidth, setSidebarWidth] = useState(400)
   
   // Initialize project state
   useEffect(() => {
+    console.log('[ProjectWorkspace] Initializing project state:')
+    console.log('[ProjectWorkspace] project:', project)
+    console.log('[ProjectWorkspace] initialProjectPath:', initialProjectPath)
+    console.log('[ProjectWorkspace] current projectPath:', projectPath)
+    
     if (project) {
+      console.log('[ProjectWorkspace] Setting project from prop:', project.path)
       setProject(project)
     } else if (initialProjectPath) {
+      console.log('[ProjectWorkspace] Setting projectPath from initialProjectPath:', initialProjectPath)
       setProjectPath(initialProjectPath)
     }
-  }, [project, initialProjectPath, setProject, setProjectPath])
+  }, [project, initialProjectPath, setProject, setProjectPath, projectPath])
 
   const handleCheckpointRestore = async (commitHash: string) => {
     try {
@@ -67,7 +73,18 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       const result = await window.electronAPI.gitCheckpoint.createCheckpoint(projectPath, description)
       if (result.success) {
         console.log('Checkpoint created successfully:', result)
-        // Refresh will be handled by ProjectInfoSidebar
+        // Force refresh of timeline by switching to timeline tab and triggering state update
+        setSidebarTab('timeline')
+        
+        // Create a small delay to ensure the timeline component is rendered
+        // then trigger a refresh by updating the key of the component
+        setTimeout(() => {
+          // Force re-render of the ProjectInfoSidebar which will refresh the timeline
+          if (currentProject) {
+            const updatedProject = { ...currentProject, updated_at: Date.now() }
+            setProject(updatedProject)
+          }
+        }, 100)
       } else {
         console.error('Failed to create checkpoint:', result.error)
       }
@@ -122,12 +139,12 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       <div className="w-full flex-1 flex">
         {/* Left Sidebar - Project Info & Context */}
         <ProjectInfoSidebar
+          key={`project-${currentProject?.id || 'none'}-${currentProject?.updated_at || 0}`}
           project={currentProject || undefined}
           projectPath={projectPath}
           selectedCheckpoint={selectedCheckpoint}
           activeTab={sidebarTab}
           onTabChange={setSidebarTab}
-          onWidthChange={setSidebarWidth}
           onCheckpointCreate={handleCheckpointCreate}
           onCheckpointRestore={handleCheckpointRestore}
           onCheckpointDelete={handleCheckpointDelete}
@@ -137,13 +154,10 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         {/* Right Main Area - Terminal */}
         <div 
           className="flex-1 overflow-hidden flex flex-col"
-          style={{ width: `calc(100% - ${sidebarWidth}px)` }}
         >
           <TerminalContainer
             projectPath={projectPath}
             project={currentProject || undefined}
-            mode={terminalMode}
-            selectedAIModel={selectedAIModel}
             className="flex-1"
           />
         </div>
