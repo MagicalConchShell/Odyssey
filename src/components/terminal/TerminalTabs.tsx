@@ -19,7 +19,7 @@ import {
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip'
 
 // Import types and hooks - using simplified Zustand store
-import {useSimpleTerminalStore} from './hooks/useSimpleTerminalStore'
+import {useTerminalStore} from './hooks/useTerminalStore'
 import {useTheme} from '@/components/theme-provider'
 
 // Import individual tab component
@@ -43,7 +43,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
     setActiveTerminal,
     removeTerminal,
     setTerminalTitle
-  } = useSimpleTerminalStore()
+  } = useTerminalStore()
 
   const [showNewTabMenu, setShowNewTabMenu] = useState(false)
 

@@ -57,8 +57,6 @@ export const ProjectStateProvider: React.FC<ProjectStateProviderProps> = ({ chil
   // Restore terminal sessions when project changes
   useEffect(() => {
     if (state.currentProject && state.projectPath) {
-      console.log('Project changed, attempting to restore terminal sessions')
-      // Add a small delay to ensure the state is fully initialized
       setTimeout(() => {
         // We'll trigger this through the useTerminal hook when needed
       }, 100)

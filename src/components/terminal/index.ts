@@ -7,8 +7,5 @@ export { TerminalSearch } from './TerminalSearch';
 export { TerminalWelcome } from './TerminalWelcome';
 
 // Hooks
-export { useSimpleTerminalStore } from './hooks/useSimpleTerminalStore';
+export { useTerminalStore } from './hooks/useTerminalStore';
 export { useSimpleTerminalPersistence } from './hooks/useSimpleTerminalPersistence';
-
-// Utilities
-export { terminalEventManager } from './lib/TerminalEventManager';

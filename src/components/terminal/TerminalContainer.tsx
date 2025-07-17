@@ -8,9 +8,8 @@ import { TerminalTabs } from './TerminalTabs'
 import { Terminal } from './Terminal'
 
 // Import simplified state management
-import { useSimpleTerminalStore, useSimpleActiveTerminal, useSimpleHasTerminals } from './hooks/useSimpleTerminalStore'
+import { useTerminalStore, useActiveTerminal, useHasTerminals } from './hooks/useTerminalStore'
 import { useTerminalMode } from '../project/lib/projectState'
-import { terminalEventManager } from './lib/TerminalEventManager'
 import { useSimpleTerminalPersistence } from './hooks/useSimpleTerminalPersistence'
 
 // Types
@@ -28,9 +27,9 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   className
 }) => {
   // Terminal state from simplified Zustand store
-  const { terminals, activeTerminalId, createTerminal, clearAll } = useSimpleTerminalStore()
-  const activeTerminal = useSimpleActiveTerminal()
-  const hasTerminals = useSimpleHasTerminals()
+  const { terminals, activeTerminalId, createTerminal, clearAll } = useTerminalStore()
+  const activeTerminal = useActiveTerminal()
+  const hasTerminals = useHasTerminals()
   
   // Terminal mode from simplified project state
   const { terminalMode, setTerminalMode } = useTerminalMode()
@@ -68,8 +67,6 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   // Cleanup terminals when project changes
   useEffect(() => {
     return () => {
-      // Clean up terminal event manager
-      terminalEventManager.cleanup()
       // Clean up persistence
       cleanup()
       // Clear all terminals
@@ -81,7 +78,6 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   useEffect(() => {
     return () => {
       console.log('[TerminalContainer] Component unmounting, cleaning up all terminals')
-      terminalEventManager.cleanup()
       cleanup()
       clearAll()
     }

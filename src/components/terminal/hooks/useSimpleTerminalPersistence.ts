@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useCallback, useRef, useState } from 'react'
-import { useSimpleTerminalStore } from './useSimpleTerminalStore'
+import { useTerminalStore } from './useTerminalStore'
 
 function debounce<T extends (...args: any[]) => any>(
   func: T,
@@ -51,7 +51,7 @@ export function useSimpleTerminalPersistence(options: SimpleTerminalPersistenceO
     saveTerminalState,
     loadTerminalState,
     restoreTerminalSessions
-  } = useSimpleTerminalStore()
+  } = useTerminalStore()
 
   const initializedRef = useRef(false)
   const projectPathRef = useRef(projectPath)
@@ -105,7 +105,7 @@ export function useSimpleTerminalPersistence(options: SimpleTerminalPersistenceO
       await loadTerminalState(path)
       
       // Get terminals to restore
-      const currentTerminals = useSimpleTerminalStore.getState().terminals
+      const currentTerminals = useTerminalStore.getState().terminals
       
       if (currentTerminals.length === 0) {
         console.log('No terminals to restore')

@@ -12,8 +12,7 @@ import {SearchAddon} from '@xterm/addon-search'
 import {WebglAddon} from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import {useTheme} from '@/components/theme-provider'
-import {useSimpleTerminalStore} from './hooks/useSimpleTerminalStore'
-import {terminalEventManager} from './lib/TerminalEventManager'
+import {useTerminalStore} from './hooks/useTerminalStore'
 import {TerminalSearch} from './TerminalSearch'
 import {terminalLogger} from '@/utils/logger'
 
@@ -28,11 +27,9 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
   const {
     writeToTerminal,
     resizeTerminal,
-    removeTerminal,
-    terminalSessionMap,
     getTerminalInstance,
     setTerminalInstance
-  } = useSimpleTerminalStore()
+  } = useTerminalStore()
 
   // Search state
   const [isSearchVisible, setIsSearchVisible] = useState(false)
@@ -93,60 +90,96 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     // Check if instance already exists
     let instance = getTerminalInstance(terminalId)
 
+    let terminal: XTerminal
+    let needsEventHandlers = true
+    
     if (instance) {
       terminalLogger.verbose('Using existing XTerm instance', {terminalId})
+      
+      // ⚠️ IMPORTANT: Check if this instance already has event handlers
+      // If it does, we should NOT create new ones to avoid duplicates
+      const hasExistingHandlers = instance.disposables && instance.disposables.length > 0
+      if (hasExistingHandlers) {
+        return instance
+      } else {
+        terminal = instance.xterm
+        needsEventHandlers = true
+      }
+    } else {
+      // Create new instance
+      terminalLogger.debug('Creating new XTerm instance', {terminalId})
+
+      // Create terminal with theme
+      terminal = new XTerminal({
+        theme: terminalTheme[theme],
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontSize: 14,
+        lineHeight: 1.2,
+        cursorBlink: true,
+        cursorStyle: 'bar',
+        allowTransparency: true,
+        convertEol: true,
+        scrollback: 1000,
+      })
+    }
+
+    // Get existing addons or create new ones
+    let fitAddon, searchAddon, webglAddon
+    
+    if (instance && !needsEventHandlers) {
+      // This shouldn't happen based on our logic above, but just in case
       return instance
+    } else if (instance) {
+      // Reuse existing addons
+      fitAddon = instance.fitAddon
+      searchAddon = instance.searchAddon
+      webglAddon = instance.webglAddon
+    } else {
+      // Create new addons
+      fitAddon = new FitAddon()
+      searchAddon = new SearchAddon()
+      webglAddon = new WebglAddon()
+
+      // Load addons
+      terminal.loadAddon(fitAddon)
+      terminal.loadAddon(searchAddon)
+      try {
+        terminal.loadAddon(webglAddon)
+        terminalLogger.debug('WebGL addon loaded', {terminalId})
+      } catch (error) {
+        terminalLogger.warn('WebGL addon failed to load, falling back to canvas', {terminalId, error})
+      }
     }
 
-    // Create new instance
-    terminalLogger.debug('Creating new XTerm instance', {terminalId})
+    // Only create event handlers if needed (to prevent duplicates)
+    let inputDisposable, resizeDisposable
+    
+    if (needsEventHandlers) {
+      // Handle user input - write to backend
+      inputDisposable = terminal.onData((data) => {
+        writeToTerminal(terminalId, data)
+      })
 
-    // Create terminal with theme
-    const terminal = new XTerminal({
-      theme: terminalTheme[theme],
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 14,
-      lineHeight: 1.2,
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      allowTransparency: true,
-      convertEol: true,
-      scrollback: 1000
-    })
-
-    // Create addons
-    const fitAddon = new FitAddon()
-    const searchAddon = new SearchAddon()
-    const webglAddon = new WebglAddon()
-
-    // Load addons
-    terminal.loadAddon(fitAddon)
-    terminal.loadAddon(searchAddon)
-    try {
-      terminal.loadAddon(webglAddon)
-      terminalLogger.debug('WebGL addon loaded', {terminalId})
-    } catch (error) {
-      terminalLogger.warn('WebGL addon failed to load, falling back to canvas', {terminalId, error})
+      // Handle terminal resize
+      resizeDisposable = terminal.onResize(({cols, rows}) => {
+        resizeTerminal(terminalId, cols, rows)
+      })
     }
 
-    // Handle user input - write to backend
-    const inputDisposable = terminal.onData((data) => {
-      writeToTerminal(terminalId, data)
-    })
-
-    // Handle terminal resize
-    const resizeDisposable = terminal.onResize(({cols, rows}) => {
-      resizeTerminal(terminalId, cols, rows)
-    })
-
-    // Create instance object
-    instance = {
-      xterm: terminal,
-      fitAddon,
-      searchAddon,
-      webglAddon,
-      disposables: [inputDisposable, resizeDisposable],
-      isAttached: false
+    // Create or update instance object
+    if (instance) {
+      // Update existing instance with new event handlers
+      instance.disposables = [inputDisposable, resizeDisposable].filter(Boolean)
+    } else {
+      // Create new instance object
+      instance = {
+        xterm: terminal,
+        fitAddon,
+        searchAddon,
+        webglAddon,
+        disposables: [inputDisposable, resizeDisposable],
+        isAttached: false
+      }
     }
 
     // Store instance in Zustand
@@ -155,59 +188,35 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     return instance
   }, [terminalId, theme, writeToTerminal, resizeTerminal, getTerminalInstance, setTerminalInstance])
 
-  // Setup backend event listeners - simplified with unified ID system
+  // Setup backend event listeners - integrated with store
   const setupBackendListeners = useCallback(() => {
     // With unified ID system, terminalId === backendSessionId
     const backendSessionId = terminalId
 
     terminalLogger.debug('Setting up listeners for terminal', {terminalId})
 
-    // Subscribe to events using the event manager
-    const subscription = terminalEventManager.subscribe(
-      terminalId,
-      backendSessionId,
-      {
-        onData: (data: string) => {
-          const instance = getTerminalInstance(terminalId)
-          if (instance?.xterm) {
-            instance.xterm.write(data)
-          }
-        },
-        onExit: (exitCode: number) => {
-          const instance = getTerminalInstance(terminalId)
-          if (instance?.xterm) {
-            instance.xterm.writeln(`\r\n\x1b[90mProcess exited with code ${exitCode}\x1b[0m`)
-          }
-          // Remove terminal from store
-          removeTerminal(terminalId)
-        },
-        onError: (error: Error) => {
-          console.error(`[Terminal] Event error for terminal ${terminalId}:`, error)
-          const instance = getTerminalInstance(terminalId)
-          if (instance?.xterm) {
-            instance.xterm.writeln(`\r\n\x1b[31mTerminal error: ${error.message}\x1b[0m`)
-          }
-        }
-      }
-    )
+    // Subscribe to events using the store's event management
+    const { subscribeToTerminalEvents } = useTerminalStore.getState()
+    subscribeToTerminalEvents(terminalId, backendSessionId)
 
     // Return cleanup function
     return () => {
-      subscription.unsubscribe()
+      const { unsubscribeFromTerminalEvents } = useTerminalStore.getState()
+      unsubscribeFromTerminalEvents(terminalId)
     }
-  }, [terminalId, removeTerminal, getTerminalInstance, writeToTerminal])
+  }, [terminalId])
 
   // Handle resize with debouncing
   const handleResize = useCallback(() => {
     const instance = getTerminalInstance(terminalId)
 
     if (!instance?.fitAddon || !instance?.xterm) {
-      console.warn(`[Terminal] Cannot resize terminal ${terminalId} - missing addon or xterm instance`)
+      terminalLogger.warn(`Cannot resize terminal - missing addon or xterm instance`, { terminalId })
       return
     }
 
     if (!terminalRef.current) {
-      console.warn(`[Terminal] Cannot resize terminal ${terminalId} - no DOM element`)
+      terminalLogger.warn(`Cannot resize terminal - no DOM element`, { terminalId })
       return
     }
 
@@ -215,16 +224,16 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       // Check if the container has actual dimensions
       const rect = terminalRef.current.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) {
-        console.warn(`[Terminal] Cannot resize terminal ${terminalId} - container has zero dimensions`, rect)
+        terminalLogger.warn(`Cannot resize terminal - container has zero dimensions`, { terminalId, rect })
         return
       }
 
       instance.fitAddon.fit()
       const {cols, rows} = instance.xterm
-      console.log(`[Terminal] Resized terminal ${terminalId}: ${cols}x${rows}, container: ${rect.width}x${rect.height}`)
+      terminalLogger.debug(`Resized terminal: ${cols}x${rows}`, { terminalId, container: rect })
       resizeTerminal(terminalId, cols, rows)
     } catch (error) {
-      console.error(`[Terminal] Resize error for terminal ${terminalId}:`, error)
+      terminalLogger.error(`Resize error for terminal`, { terminalId, error })
     }
   }, [terminalId, resizeTerminal, getTerminalInstance])
 
@@ -258,7 +267,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     return () => {
       cleanupListeners?.()
     }
-  }, [getOrCreateXTermInstance, setupBackendListeners, terminalId, resizeTerminal])
+  }, [terminalId, getOrCreateXTermInstance, setupBackendListeners, resizeTerminal])
 
   // Note: Removed session mapping dependency with unified ID system
 
@@ -323,10 +332,10 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       try {
         const found = instance.searchAddon.findNext(query, searchOptions)
         setSearchQuery(query)
-        console.log(`[Terminal] Search "${query}" found:`, found)
+        terminalLogger.debug(`Search "${query}" found: ${found}`, { terminalId })
         return found
       } catch (error) {
-        console.error(`[Terminal] Search error:`, error)
+        terminalLogger.error(`Search error`, { terminalId, error })
         return false
       }
     }
@@ -338,10 +347,10 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     if (instance?.searchAddon && searchQuery.trim()) {
       try {
         const found = instance.searchAddon.findNext(searchQuery)
-        console.log(`[Terminal] Search next found:`, found)
+        terminalLogger.debug(`Search next found: ${found}`, { terminalId })
         return found
       } catch (error) {
-        console.error(`[Terminal] Search next error:`, error)
+        terminalLogger.error(`Search next error`, { terminalId, error })
         return false
       }
     }
@@ -353,10 +362,10 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     if (instance?.searchAddon && searchQuery.trim()) {
       try {
         const found = instance.searchAddon.findPrevious(searchQuery)
-        console.log(`[Terminal] Search previous found:`, found)
+        terminalLogger.debug(`Search previous found: ${found}`, { terminalId })
         return found
       } catch (error) {
-        console.error(`[Terminal] Search previous error:`, error)
+        terminalLogger.error(`Search previous error`, { terminalId, error })
         return false
       }
     }
@@ -369,9 +378,9 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       try {
         instance.searchAddon.clearDecorations()
         setSearchQuery('')
-        console.log(`[Terminal] Search cleared`)
+        terminalLogger.debug(`Search cleared`, { terminalId })
       } catch (error) {
-        console.error(`[Terminal] Search clear error:`, error)
+        terminalLogger.error(`Search clear error`, { terminalId, error })
       }
     }
   }, [terminalId, getTerminalInstance])
@@ -405,7 +414,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isSearchVisible, handleSearchClose, terminalId, getTerminalInstance, terminalSessionMap, writeToTerminal, handleResize])
+  }, [isSearchVisible, handleSearchClose])
 
 
   // Cleanup on unmount - only dispose if terminal is being removed
@@ -414,7 +423,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       // Note: We don't dispose XTerm instances here because they should persist
       // across tab switches. Only dispose when the terminal is actually removed
       // from the store (handled in removeTerminal action)
-      console.log(`[Terminal] Component unmounting for terminal ${terminalId}`)
+      terminalLogger.debug(`Component unmounting`, { terminalId })
     }
   }, [terminalId])
 

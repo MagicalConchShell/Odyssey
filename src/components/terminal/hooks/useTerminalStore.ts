@@ -1,25 +1,30 @@
 /**
- * Simplified Terminal Store - Clean Architecture
+ * Terminal Store - Clean Architecture with Integrated Event Management
  * 
  * This implements the SOTA architecture from terminal_architecture_v1.md
- * Clean, centralized state management for terminals without pane complexity
+ * Clean, centralized state management for terminals with integrated IPC event handling
  */
 
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { Terminal, CreateTerminalOptions } from '@/types/terminal'
 import { storeLogger } from '@/utils/logger'
+import { 
+  getTerminalDataChannel,
+  getTerminalExitChannel
+} from '../../../../electron/ipc-channels'
 
-// Simplified state interface
-interface SimpleTerminalState {
+// State interface
+interface TerminalState {
   terminals: Terminal[]
   activeTerminalId: string | null
   terminalSessionMap: Map<string, string> // Terminal ID -> Backend Session ID
   terminalInstances: Map<string, any> // Terminal ID -> XTerm Instance
+  eventListeners: Map<string, Array<() => void>> // Terminal ID -> Cleanup functions
 }
 
-// Simplified actions interface
-interface SimpleTerminalActions {
+// Actions interface
+interface TerminalActions {
   // Core terminal lifecycle
   createTerminal: (options: CreateTerminalOptions) => string
   removeTerminal: (id: string) => void
@@ -35,6 +40,10 @@ interface SimpleTerminalActions {
   getTerminalInstance: (terminalId: string) => any | undefined
   removeTerminalInstance: (terminalId: string) => void
   
+  // Event management (replaces TerminalEventManager)
+  subscribeToTerminalEvents: (terminalId: string, backendSessionId: string) => void
+  unsubscribeFromTerminalEvents: (terminalId: string) => void
+  
   // Utility
   clearAll: () => void
   getTerminal: (id: string) => Terminal | undefined
@@ -45,16 +54,17 @@ interface SimpleTerminalActions {
   restoreTerminalSessions: (projectPath?: string) => Promise<void>
 }
 
-type SimpleTerminalStore = SimpleTerminalState & SimpleTerminalActions
+type TerminalStore = TerminalState & TerminalActions
 
-// Create the simplified store
-export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
+// Create the store
+export const useTerminalStore = create<TerminalStore>()(
   subscribeWithSelector((set, get) => ({
     // Initial state
     terminals: [],
     activeTerminalId: null,
     terminalSessionMap: new Map<string, string>(),
     terminalInstances: new Map<string, any>(),
+    eventListeners: new Map<string, Array<() => void>>(),
 
     // Actions
     createTerminal: (options) => {
@@ -115,6 +125,9 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
               set((state) => ({
                 terminalSessionMap: new Map(state.terminalSessionMap).set(terminalId, backendSessionId)
               }))
+              
+              // Event subscription is now handled by the Terminal.tsx component
+              
               storeLogger.info('Terminal unified ID confirmed', { terminalId })
               storeLogger.debug('Session mappings updated', { totalMappings: get().terminalSessionMap.size })
             } else {
@@ -145,6 +158,9 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
       storeLogger.info('Removing terminal', { terminalId: id })
       
       const backendSessionId = get().terminalSessionMap.get(id)
+      
+      // Unsubscribe from events first
+      get().unsubscribeFromTerminalEvents(id)
       
       if (backendSessionId) {
         window.electronAPI.terminal.close(backendSessionId)
@@ -288,7 +304,7 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
       if (instance) {
         try {
           if (instance.disposables) {
-            instance.disposables.forEach((disposable: any) => {
+            instance.disposables.forEach((disposable: { dispose: () => void }) => {
               try {
                 disposable.dispose()
               } catch (error) {
@@ -312,6 +328,141 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
       })
     },
 
+    // Event management - replaces TerminalEventManager
+    subscribeToTerminalEvents: (terminalId, backendSessionId) => {
+      storeLogger.debug('Subscribing to terminal events', {
+        terminalId,
+        backendSessionId
+      })
+
+      // Clean up any existing listeners ATOMICALLY
+      const existingListeners = get().eventListeners.get(terminalId)
+      if (existingListeners) {
+        storeLogger.debug(`Cleaning up ${existingListeners.length} existing listeners for ${terminalId}`)
+        existingListeners.forEach(cleanup => {
+          try {
+            cleanup()
+          } catch (error) {
+            storeLogger.error(`Error cleaning up listener for ${terminalId}:`, { error })
+          }
+        })
+        
+        // Remove from map immediately to prevent race conditions
+        set((state) => {
+          const newEventListeners = new Map(state.eventListeners)
+          newEventListeners.delete(terminalId)
+          return { eventListeners: newEventListeners }
+        })
+      }
+
+      // Create event channels
+      const dataChannel = getTerminalDataChannel(backendSessionId)
+      const exitChannel = getTerminalExitChannel(backendSessionId)
+      
+      storeLogger.verbose('Event channels configured', {
+        terminalId,
+        dataChannel,
+        exitChannel
+      })
+
+      // Create event handlers with error handling
+      const handleData = (_event: any, data: string) => {
+        try {
+          storeLogger.verbose('Received data for terminal', {
+            terminalId,
+            dataLength: data.length
+          })
+          
+          // Write data to XTerm instance
+          const instance = get().getTerminalInstance(terminalId)
+          if (instance?.xterm) {
+            instance.xterm.write(data)
+          } else {
+            storeLogger.warn(`No XTerm instance found for ${terminalId}`)
+          }
+        } catch (error) {
+          storeLogger.error('Error handling terminal data', { terminalId, error })
+        }
+      }
+
+      const handleExit = (_event: any, exitCode: number) => {
+        try {
+          storeLogger.info('Terminal exited', { terminalId, exitCode })
+          
+          // Write an exit message to terminal
+          const instance = get().getTerminalInstance(terminalId)
+          if (instance?.xterm) {
+            instance.xterm.writeln(`\r\n\x1b[90mProcess exited with code ${exitCode}\x1b[0m`)
+          }
+          
+          // Remove terminal from store
+          get().removeTerminal(terminalId)
+        } catch (error) {
+          storeLogger.error('Error handling terminal exit', { terminalId, error })
+        }
+      }
+
+      // Set up event listeners
+      if (!window.electronAPI?.on) {
+        const error = new Error('electronAPI.on not available')
+        storeLogger.error('electronAPI.on not available for terminal', { terminalId })
+        throw error
+      }
+
+      try {
+        storeLogger.debug('Adding event listeners for terminal', {
+          terminalId,
+          dataChannel,
+          exitChannel
+        })
+        
+        window.electronAPI.on(dataChannel, handleData)
+        window.electronAPI.on(exitChannel, handleExit)
+        
+        storeLogger.debug('Event listeners setup successfully', { terminalId })
+        
+        // Store cleanup functions ATOMICALLY
+        const cleanupFunctions = [
+          () => {
+            storeLogger.debug(`Cleaning up IPC listeners for ${terminalId}`)
+            if (window.electronAPI.removeListener) {
+              window.electronAPI.removeListener(dataChannel, handleData)
+              window.electronAPI.removeListener(exitChannel, handleExit)
+            }
+          }
+        ]
+        
+        set((state) => ({
+          eventListeners: new Map(state.eventListeners).set(terminalId, cleanupFunctions)
+        }))
+        
+      } catch (error) {
+        storeLogger.error('Failed to setup event listeners for terminal', { terminalId, error })
+        throw error
+      }
+    },
+
+    unsubscribeFromTerminalEvents: (terminalId) => {
+      const cleanupFunctions = get().eventListeners.get(terminalId)
+      if (cleanupFunctions) {
+        cleanupFunctions.forEach(cleanup => {
+          try {
+            cleanup()
+          } catch (error) {
+            storeLogger.error('Error during event cleanup', { terminalId, error })
+          }
+        })
+        
+        set((state) => {
+          const newEventListeners = new Map(state.eventListeners)
+          newEventListeners.delete(terminalId)
+          return { eventListeners: newEventListeners }
+        })
+        
+        storeLogger.debug('Unsubscribed from terminal events', { terminalId })
+      }
+    },
+
     clearAll: () => {
       const { terminals, terminalSessionMap, terminalInstances } = get()
       
@@ -326,6 +477,11 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
         }
       })
       
+      // Clean up all event listeners
+      terminals.forEach(terminal => {
+        get().unsubscribeFromTerminalEvents(terminal.id)
+      })
+      
       // Dispose all XTerm instances
       terminalInstances.forEach(instance => {
         if (instance?.xterm) {
@@ -337,7 +493,8 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
         terminals: [],
         activeTerminalId: null,
         terminalSessionMap: new Map(),
-        terminalInstances: new Map()
+        terminalInstances: new Map(),
+        eventListeners: new Map()
       })
     },
 
@@ -437,6 +594,9 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
               set((state) => ({
                 terminalSessionMap: new Map(state.terminalSessionMap).set(terminal.id, result.data.sessionId)
               }))
+              
+              // Event subscription is now handled by the Terminal.tsx component
+              
               storeLogger.info('Terminal restored with backend session', { terminalId: terminal.id, sessionId: result.data.sessionId })
             } else {
               storeLogger.error('Failed to restore terminal', { terminalId: terminal.id, error: result.error })
@@ -457,12 +617,12 @@ export const useSimpleTerminalStore = create<SimpleTerminalStore>()(
 )
 
 // Derived selectors
-export const useSimpleActiveTerminal = () => {
-  return useSimpleTerminalStore((state) => 
+export const useActiveTerminal = () => {
+  return useTerminalStore((state) => 
     state.terminals.find(t => t.id === state.activeTerminalId) || null
   )
 }
 
-export const useSimpleHasTerminals = () => {
-  return useSimpleTerminalStore((state) => state.terminals.length > 0)
+export const useHasTerminals = () => {
+  return useTerminalStore((state) => state.terminals.length > 0)
 }

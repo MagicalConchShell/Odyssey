@@ -90,7 +90,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   // Start file system watcher when project path changes
   useEffect(() => {
     if (projectPath) {
-      console.log('[ProjectInfoSidebar] Starting file system watcher for:', projectPath)
       window.electronAPI.fileSystem.startFileSystemWatcher(projectPath)
         .then(() => {
           console.log('[ProjectInfoSidebar] File system watcher started successfully')
@@ -102,7 +101,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
 
     return () => {
       if (projectPath) {
-        console.log('[ProjectInfoSidebar] Stopping file system watcher for:', projectPath)
         window.electronAPI.fileSystem.stopFileSystemWatcher(projectPath)
           .catch((error) => {
             console.error('[ProjectInfoSidebar] Failed to stop file system watcher:', error)
@@ -114,9 +112,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   // Listen for file system changes
   useEffect(() => {
     const handleFileSystemChange = (_event: any, data: { projectPath: string }) => {
-      console.log('[ProjectInfoSidebar] File system changed:', data)
       if (data.projectPath === projectPath && activeTab === 'files') {
-        console.log('[ProjectInfoSidebar] Refreshing files due to file system change')
         loadProjectFiles()
       }
     }
@@ -130,15 +126,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
         window.electronAPI.removeListener('file-system-changed', handleFileSystemChange)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath, activeTab])
-
-  // Debug logging for projectFiles state changes
-  useEffect(() => {
-    console.log('[ProjectInfoSidebar] projectFiles state changed:', projectFiles)
-    console.log('[ProjectInfoSidebar] projectFiles.length:', projectFiles.length)
-    console.log('[ProjectInfoSidebar] activeTab:', activeTab)
-  }, [projectFiles, activeTab])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -168,16 +156,13 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
 
 
   const loadProjectFiles = async () => {
-    console.log('[ProjectInfoSidebar] loadProjectFiles called with projectPath:', projectPath)
     
     if (!projectPath) {
-      console.log('[ProjectInfoSidebar] No projectPath provided, returning early')
       setError('No project path provided')
       return
     }
     
     if (typeof projectPath !== 'string' || projectPath.trim() === '') {
-      console.log('[ProjectInfoSidebar] Invalid projectPath:', projectPath)
       setError('Invalid project path')
       return
     }
@@ -192,28 +177,19 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
         window.electronAPI.gitCheckpoint.getGitStatus(projectPath)
       ])
 
-      console.log('[ProjectInfoSidebar] readDirectory result:', filesResult)
-      console.log('[ProjectInfoSidebar] gitStatus result:', gitStatusResult)
-
       if (filesResult.success && filesResult.data) {
-        console.log('[ProjectInfoSidebar] SUCCESS: Setting project files:', filesResult.data.length, 'items')
         
         // Merge git status with file data
         const filesWithGitStatus = mergeGitStatusWithFiles(filesResult.data, gitStatusResult.data)
         
         setProjectFiles(filesWithGitStatus)
-        console.log('[ProjectInfoSidebar] State should be updated with:', filesWithGitStatus)
       } else {
-        console.log('[ProjectInfoSidebar] FAILED: No data or failed result, setting empty array')
-        console.log('[ProjectInfoSidebar] Result object:', filesResult)
         setProjectFiles([])
         if (!filesResult.success) {
-          console.log('[ProjectInfoSidebar] Error from readDirectory:', filesResult.error)
           setError(filesResult.error || 'Failed to read directory')
         }
       }
     } catch (err: any) {
-      console.error('[ProjectInfoSidebar] Exception in loadProjectFiles:', err)
       setError(err.message || 'Failed to load project files')
       setProjectFiles([])
     } finally {
@@ -517,7 +493,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                   
                   <div className="flex-1 overflow-auto">
                     {(() => {
-                      console.log('[ProjectInfoSidebar] Render condition check - loading:', loading, 'error:', error, 'projectFiles.length:', projectFiles.length);
                       return null;
                     })()}
                     {loading ? (
@@ -537,7 +512,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                     ) : projectFiles.length > 0 ? (
                       <div className="p-2">
                         {(() => {
-                          console.log('[ProjectInfoSidebar] Rendering FileTree with items:', projectFiles);
                           return null;
                         })()}
                         <FileTree
@@ -550,7 +524,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                     ) : (
                       <div className="flex items-center justify-center h-32 text-center p-4">
                         {(() => {
-                          console.log('[ProjectInfoSidebar] Showing empty state. projectFiles:', projectFiles, 'length:', projectFiles.length, 'loading:', loading, 'error:', error);
                           return null;
                         })()}
                         <div>
