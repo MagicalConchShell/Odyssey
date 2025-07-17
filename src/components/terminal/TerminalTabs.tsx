@@ -2,9 +2,7 @@ import React, {useState} from 'react'
 import {
   Plus,
   ChevronDown,
-  Terminal as TerminalIcon,
-  Bot,
-  Sparkles
+  Terminal as TerminalIcon
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -92,9 +90,9 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
   const getTabIcon = (type: 'claude-code' | 'gemini' | 'terminal') => {
     switch (type) {
       case 'claude-code':
-        return <Bot className="h-3 w-3"/>
+        return <img src="./claude.png" alt="Claude" className="h-3 w-3 object-contain"/>
       case 'gemini':
-        return <Sparkles className="h-3 w-3"/>
+        return <img src="./gemini.png" alt="Gemini" className="h-3 w-3 object-contain"/>
       case 'terminal':
         return <TerminalIcon className="h-3 w-3"/>
     }
@@ -121,7 +119,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
               isActive={terminal.id === activeTerminalId}
               onSelect={() => handleTabClick(terminal.id)}
               onClose={(e) => handleTabClose(terminal.id, e)}
-              onRename={(newTitle) => handleTabRename(terminal.id, newTitle)}
+              onRename={(id, newTitle) => handleTabRename(id, newTitle)}
               icon={getTabIcon(terminal.type || 'terminal')}
             />
           ))}
