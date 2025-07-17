@@ -36,7 +36,7 @@ export interface IElectronAPI {
 
   // Terminal handlers
   terminal: {
-    create: (workingDirectory: string, shell?: string) => Promise<ApiResponse<{ sessionId: string }>>;
+    create: (workingDirectory: string, shell?: string, projectPath?: string, terminalId?: string) => Promise<ApiResponse<{ sessionId: string }>>;
     write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
     resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
     close: (sessionId: string) => Promise<ApiResponse<void>>;
@@ -153,7 +153,7 @@ const electronAPI: IElectronAPI = {
 
   // Terminal handlers
   terminal: {
-    create: (workingDirectory, shell) => ipcRenderer.invoke('terminal:create', workingDirectory, shell),
+    create: (workingDirectory, shell, projectPath, terminalId) => ipcRenderer.invoke('terminal:create', workingDirectory, shell, projectPath, terminalId),
     write: (sessionId, data) => ipcRenderer.invoke('terminal:write', sessionId, data),
     resize: (sessionId, cols, rows) => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
     close: (sessionId) => ipcRenderer.invoke('terminal:close', sessionId),

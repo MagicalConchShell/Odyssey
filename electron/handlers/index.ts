@@ -1,13 +1,13 @@
 import { IpcMain } from 'electron';
-import { setupClaudeCliHandlers } from './claude-cli.js';
-import { setupFileSystemHandlers } from './file-system.js';
-import { setupProjectManagementHandlers } from './project-management.js';
-import { setupSettingsHandlers } from './settings.js';
-import { setupUsageAnalyticsHandlers } from './usage-analytics.js';
-import { setupMcpHandlers } from './mcp.js';
-import { setupGitCheckpointHandlers } from './git-checkpoint.js';
-import { setupSystemHandlers } from './system.js';
-import { setupTerminalHandlers } from './terminal.js';
+import { setupClaudeCliHandlers } from './claude-cli-handler.js';
+import { setupFileSystemHandlers } from './file-system-handler.js';
+import { setupProjectManagementHandlers } from './project-management-handler.js';
+import { setupSettingsHandlers } from './settings-handler.js';
+import { setupUsageAnalyticsHandlers } from './usage-analytics-handler.js';
+import { setupMcpHandlers } from './mcp-handler.js';
+import { setupGitCheckpointHandlers } from './git-checkpoint-handler.js';
+import { setupSystemHandlers } from './system-handler.js';
+import { setupTerminalHandlers } from './terminal-handler.js';
 
 /**
  * Register all IPC handlers in the correct order
@@ -54,10 +54,10 @@ export {
 
 // Export utility functions from individual modules
 // export { clearClaudeCliCache, getClaudeCliCacheStatus } from './claude-cli.js';
-export { validateWorkingDirectory, resolveProjectPath } from './file-system.js';
-export { getProjectPathFromSessions } from './project-management.js';
-export { validateSettings, getDefaultSettings, mergeWithDefaults } from './settings.js';
-export { executeCommand, commandExists, getSystemInfo } from './system.js';
+export { validateWorkingDirectory, resolveProjectPath } from './file-system-handler.js';
+export { getProjectPathFromSessions } from './project-management-handler.js';
+export { validateSettings, getDefaultSettings, mergeWithDefaults } from './settings-handler.js';
+export { executeCommand, commandExists, getSystemInfo } from './system-handler.js';
 
 // Export all types for external use
 export * from './types.js';

@@ -4,11 +4,10 @@ import {
   Loader2, 
   Sparkles
 } from 'lucide-react'
-import { CommandPalette } from './CommandPalette'
+import { CommandPalette } from './command/CommandPalette'
 import { Button } from './ui/button'
 import { Progress } from './ui/progress'
-import { useToast } from '../hooks/useToast'
-import { ToastComponent } from './ui/toast'
+import { toast } from "sonner"
 
 interface ClaudeProjectImportCandidate {
   name: string
@@ -39,7 +38,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const [importLoading, setImportLoading] = useState(false)
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set())
   const [refreshFunction, setRefreshFunction] = useState<(() => Promise<void>) | null>(null)
-  const { toast, showSuccess, showError } = useToast()
 
   // Handle navigation to different app views
   const handleNavigate = (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => {
@@ -93,7 +91,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       )
       if (response.success) {
         setShowImportDialog(false)
-        showSuccess(`Successfully imported ${response.data?.imported || 0} projects`)
+        toast.success(`Successfully imported ${response.data?.imported || 0} projects`)
         
         // Refresh the CommandPalette to show newly imported projects
         if (refreshFunction) {
@@ -104,7 +102,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       }
     } catch (err) {
       console.error('Failed to import projects:', err)
-      showError(err instanceof Error ? err.message : 'Failed to import projects')
+      toast.error(err instanceof Error ? err.message : 'Failed to import projects')
     } finally {
       setImportLoading(false)
     }
@@ -290,9 +288,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Toast Component */}
-      <ToastComponent toast={toast} />
     </div>
   )
 }

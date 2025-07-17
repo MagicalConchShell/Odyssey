@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getFileIcon } from '@/lib/file-utils'
+import { getFileIcon } from '../project/lib/file-utils'
 
 export interface FileTreeItem {
   path: string

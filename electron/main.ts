@@ -1,9 +1,9 @@
 import {app, BrowserWindow, ipcMain, session} from 'electron';
 import {join} from 'path';
-import {dbManager} from './database.js';
-import {usageDataCache} from './usage-cache.js';
+import {dbManager} from './services/database-service.js';
+import {usageDataCache} from './services/usage-analytics-service.js';
 import {setupAllHandlers, cleanupHandlers} from './handlers/index.js';
-import {setMainWindow} from './handlers/file-system.js';
+import {setMainWindow} from './handlers/file-system-handler.js';
 import {ptyService} from "./services/pty-service";
 
 let mainWindow: BrowserWindow;
@@ -37,7 +37,7 @@ const createWindow = async () => {
     setMainWindow(mainWindow);
 
     // Set up terminal WebContents for event forwarding
-    const {setTerminalWebContents} = require('./handlers/terminal.js');
+    const {setTerminalWebContents} = require('./handlers/terminal-handler.js');
     setTerminalWebContents(mainWindow.webContents);
   });
 

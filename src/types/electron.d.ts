@@ -62,7 +62,7 @@ declare global {
 
       // Terminal handlers
       terminal: {
-        create: (workingDirectory: string, shell?: string, projectPath?: string) => Promise<ApiResponse<{ sessionId: string }>>;
+        create: (workingDirectory: string, shell?: string, projectPath?: string, terminalId?: string) => Promise<ApiResponse<{ sessionId: string }>>;
         write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
         resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
         close: (sessionId: string) => Promise<ApiResponse<void>>;

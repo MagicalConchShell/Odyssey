@@ -3,18 +3,19 @@ import {ArrowLeft} from 'lucide-react'
 import {ClaudeMdFile} from './types/electron'
 
 // Import components
-import {ProjectWorkspace} from './components/ProjectWorkspace'
-import {type Project} from './lib/projectState'
-import {ProjectStateProvider} from './components/ProjectStateProvider'
+import {ProjectWorkspace} from './components/project/ProjectWorkspace'
+import {type Project} from './components/project/lib/projectState'
+import {ProjectStateProvider} from './components/project/ProjectStateProvider'
 import {Settings} from './components/Settings'
 import {UsageDashboard} from './components/UsageDashboard'
-import {MCPManager} from './components/MCPManager'
+import {MCPManager} from '@/components/mcp'
 import {WelcomeScreen} from './components/WelcomeScreen'
-import {Topbar} from './components/Topbar'
+import {Topbar} from '@/components/layout'
 import {ThemeProvider} from './components/theme-provider'
-import {MarkdownEditor} from './components/MarkdownEditor'
-import {ClaudeFileEditor} from './components/ClaudeFileEditor'
-import {GlobalCommandOverlay} from './components/GlobalCommandOverlay'
+import {MarkdownEditor} from '@/components/editor'
+import {ClaudeFileEditor} from '@/components/editor'
+import {GlobalCommandOverlay} from '@/components/command'
+import {Toaster} from '@/components/ui/sonner'
 
 type View =
   "welcome"
@@ -81,7 +82,7 @@ function App() {
     }
 
     document.addEventListener('keydown', handleKeyDown)
-    
+
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
@@ -334,6 +335,8 @@ function App() {
           onOpenFolder={handleOpenFolder}
           onImportProjects={handleImportProjects}
         />
+
+        <Toaster/>
       </div>
     </ThemeProvider>
   )
