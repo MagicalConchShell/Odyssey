@@ -98,7 +98,7 @@ export const eventLogger = {
 
 // Initialize with environment-based log level
 const initLogLevel = () => {
-  const envLevel = process.env.NODE_ENV === 'development' ? LogLevel.DEBUG : LogLevel.INFO
+  const envLevel = process.env.NODE_ENV === 'development' ? LogLevel.DEBUG : LogLevel.DEBUG
   logger.setLevel(envLevel)
 }
 

@@ -55,17 +55,21 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
   })
 
   // Handle creating new tab
-  const handleCreateTab = (type: 'claude-code' | 'gemini' | 'terminal') => {
+  const handleCreateTab = async (type: 'claude-code' | 'gemini' | 'terminal') => {
     console.log('Creating new tab:', type)
 
-    // Create terminal using Zustand store
-    createTerminal({
-      type,
-      cwd: projectPath,
-      makeActive: true
-    })
+    try {
+      // Create terminal using Zustand store
+      await createTerminal({
+        type,
+        cwd: projectPath,
+        makeActive: true
+      })
 
-    setShowNewTabMenu(false)
+      setShowNewTabMenu(false)
+    } catch (error) {
+      console.error('Failed to create terminal tab:', error)
+    }
   }
 
   // Handle tab selection

@@ -51,7 +51,7 @@ export interface ProcessConfig {
   command: string
   args: string[]
   options?: any
-  sessionId?: string
+  terminalId?: string
   onStdout?: (line: string) => void
   onStderr?: (line: string) => void
   onExit?: (code: number | null) => void
@@ -75,9 +75,9 @@ export function executeWithLineBuffer(config: ProcessConfig): Promise<{ code: nu
       if (config.onStdout) {
         config.onStdout(line)
       }
-      if (config.sessionId) {
+      if (config.terminalId) {
         // Emit IPC event for real-time updates
-        ipcMain.emit('claude-output', null, { sessionId: config.sessionId, data: line + '\n' })
+        ipcMain.emit('claude-output', null, { terminalId: config.terminalId, data: line + '\n' })
       }
     })
     
@@ -86,9 +86,9 @@ export function executeWithLineBuffer(config: ProcessConfig): Promise<{ code: nu
       if (config.onStderr) {
         config.onStderr(line)
       }
-      if (config.sessionId) {
+      if (config.terminalId) {
         // Emit IPC event for real-time updates
-        ipcMain.emit('claude-error', null, { sessionId: config.sessionId, data: line + '\n' })
+        ipcMain.emit('claude-error', null, { terminalId: config.terminalId, data: line + '\n' })
       }
     })
     
@@ -111,9 +111,9 @@ export function executeWithLineBuffer(config: ProcessConfig): Promise<{ code: nu
         config.onExit(code)
       }
       
-      if (config.sessionId) {
+      if (config.terminalId) {
         // Emit IPC event for process completion
-        ipcMain.emit('claude-process-end', null, { sessionId: config.sessionId, code })
+        ipcMain.emit('claude-process-end', null, { terminalId: config.terminalId, code })
       }
       
       resolve({ code, stdout: stdoutData, stderr: stderrData })

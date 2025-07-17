@@ -35,10 +35,6 @@ const createWindow = async () => {
 
     // Set the main window for file system watcher
     setMainWindow(mainWindow);
-
-    // Set up terminal WebContents for event forwarding
-    const {setTerminalWebContents} = require('./handlers/terminal-handler.js');
-    setTerminalWebContents(mainWindow.webContents);
   });
 
 

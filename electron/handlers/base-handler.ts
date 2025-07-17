@@ -70,6 +70,47 @@ export function handleIpcOperation<TInput extends any[] = any[], TOutput = any>(
 }
 
 /**
+ * Common error handling pattern for IPC handlers that need event parameter
+ * @param operation - The async operation to execute with event parameter
+ * @param config -
+ * @returns Promise with success/error result structure
+ */
+export function handleIpcOperationWithEvent<TInput extends any[] = any[], TOutput = any>(
+  operation: (event: Electron.IpcMainInvokeEvent, ...args: TInput) => Promise<TOutput>,
+  config?: HandlerConfig
+): HandlerFunction<TInput, TOutput> {
+  return async (event: Electron.IpcMainInvokeEvent, ...args: TInput): Promise<IpcResponse<TOutput>> => {
+    try {
+      // Input validation if required
+      if (config?.requiresValidation) {
+        validateInput(args);
+      }
+
+      // Execute the operation with optional timeout, passing event as first parameter
+      const result = config?.timeout 
+        ? await withTimeout(operation(event, ...args), config.timeout)
+        : await operation(event, ...args);
+
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = error instanceof Error && 'code' in error ? (error as any).code : undefined;
+      
+      console.error(`IPC Handler Error [${config?.name || 'unknown'}]:`, errorMessage);
+      
+      return {
+        success: false,
+        error: errorMessage,
+        errorCode
+      };
+    }
+  };
+}
+
+/**
  * Basic input validation
  */
 function validateInput(args: any[]): void {
@@ -107,5 +148,18 @@ export function registerHandler<TInput extends any[] = any[], TOutput = any>(
   config?: Omit<HandlerConfig, 'name'>
 ): void {
   const wrappedHandler = handleIpcOperation(handler, { name: channel, ...config });
+  ipcMain.handle(channel, wrappedHandler);
+}
+
+/**
+ * Helper to register a handler that needs event parameter with consistent error handling
+ */
+export function registerHandlerWithEvent<TInput extends any[] = any[], TOutput = any>(
+  ipcMain: IpcMain,
+  channel: string,
+  handler: (event: Electron.IpcMainInvokeEvent, ...args: TInput) => Promise<TOutput>,
+  config?: Omit<HandlerConfig, 'name'>
+): void {
+  const wrappedHandler = handleIpcOperationWithEvent(handler, { name: channel, ...config });
   ipcMain.handle(channel, wrappedHandler);
 }

@@ -62,15 +62,15 @@ declare global {
 
       // Terminal handlers
       terminal: {
-        create: (workingDirectory: string, shell?: string, projectPath?: string, terminalId?: string) => Promise<ApiResponse<{ sessionId: string }>>;
-        write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
-        resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
-        close: (sessionId: string) => Promise<ApiResponse<void>>;
-        info: (sessionId: string) => Promise<ApiResponse<any>>;
+        create: (workingDirectory: string, shell?: string, projectPath?: string) => Promise<ApiResponse<{ terminalId: string }>>;
+        write: (terminalId: string, data: string) => Promise<ApiResponse<void>>;
+        resize: (terminalId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
+        close: (terminalId: string) => Promise<ApiResponse<void>>;
+        info: (terminalId: string) => Promise<ApiResponse<any>>;
         list: () => Promise<ApiResponse<any[]>>;
-        pause: (sessionId: string) => Promise<ApiResponse<void>>;
-        resume: (sessionId: string) => Promise<ApiResponse<void>>;
-        getState: (sessionId: string) => Promise<ApiResponse<any>>;
+        pause: (terminalId: string) => Promise<ApiResponse<void>>;
+        resume: (terminalId: string) => Promise<ApiResponse<void>>;
+        getState: (terminalId: string) => Promise<ApiResponse<any>>;
       };
 
       // Event listeners

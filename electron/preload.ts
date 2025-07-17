@@ -36,15 +36,15 @@ export interface IElectronAPI {
 
   // Terminal handlers
   terminal: {
-    create: (workingDirectory: string, shell?: string, projectPath?: string, terminalId?: string) => Promise<ApiResponse<{ sessionId: string }>>;
-    write: (sessionId: string, data: string) => Promise<ApiResponse<void>>;
-    resize: (sessionId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
-    close: (sessionId: string) => Promise<ApiResponse<void>>;
-    info: (sessionId: string) => Promise<ApiResponse<{ isActive: boolean; workingDirectory: string; shell: string }>>;
+    create: (workingDirectory: string, shell?: string, projectPath?: string, terminalId?: string) => Promise<ApiResponse<{ terminalId: string }>>;
+    write: (terminalId: string, data: string) => Promise<ApiResponse<void>>;
+    resize: (terminalId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
+    close: (terminalId: string) => Promise<ApiResponse<void>>;
+    info: (terminalId: string) => Promise<ApiResponse<{ isActive: boolean; workingDirectory: string; shell: string }>>;
     list: () => Promise<ApiResponse<string[]>>;
-    pause: (sessionId: string) => Promise<ApiResponse<void>>;
-    resume: (sessionId: string) => Promise<ApiResponse<void>>;
-    getState: (sessionId: string) => Promise<ApiResponse<any>>;
+    pause: (terminalId: string) => Promise<ApiResponse<void>>;
+    resume: (terminalId: string) => Promise<ApiResponse<void>>;
+    getState: (terminalId: string) => Promise<ApiResponse<any>>;
   };
 
   // Claude CLI handlers
@@ -154,14 +154,14 @@ const electronAPI: IElectronAPI = {
   // Terminal handlers
   terminal: {
     create: (workingDirectory, shell, projectPath, terminalId) => ipcRenderer.invoke('terminal:create', workingDirectory, shell, projectPath, terminalId),
-    write: (sessionId, data) => ipcRenderer.invoke('terminal:write', sessionId, data),
-    resize: (sessionId, cols, rows) => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
-    close: (sessionId) => ipcRenderer.invoke('terminal:close', sessionId),
-    info: (sessionId) => ipcRenderer.invoke('terminal:info', sessionId),
+    write: (terminalId, data) => ipcRenderer.invoke('terminal:write', terminalId, data),
+    resize: (terminalId, cols, rows) => ipcRenderer.invoke('terminal:resize', terminalId, cols, rows),
+    close: (terminalId) => ipcRenderer.invoke('terminal:close', terminalId),
+    info: (terminalId) => ipcRenderer.invoke('terminal:info', terminalId),
     list: () => ipcRenderer.invoke('terminal:list'),
-    pause: (sessionId) => ipcRenderer.invoke('terminal:pause', sessionId),
-    resume: (sessionId) => ipcRenderer.invoke('terminal:resume', sessionId),
-    getState: (sessionId) => ipcRenderer.invoke('terminal:getState', sessionId),
+    pause: (terminalId) => ipcRenderer.invoke('terminal:pause', terminalId),
+    resume: (terminalId) => ipcRenderer.invoke('terminal:resume', terminalId),
+    getState: (terminalId) => ipcRenderer.invoke('terminal:getState', terminalId),
   },
 
   // Claude CLI handlers

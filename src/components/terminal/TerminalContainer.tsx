@@ -43,18 +43,22 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   })
 
   // Handle AI model selection from welcome screen
-  const handleModelSelect = useCallback((model: 'claude-code' | 'gemini' | 'terminal') => {
+  const handleModelSelect = useCallback(async (model: 'claude-code' | 'gemini' | 'terminal') => {
     console.log('Creating terminal:', { model, projectPath })
     
-    // Create terminal using Zustand store
-    createTerminal({
-      type: model,
-      cwd: projectPath,
-      makeActive: true
-    })
-    
-    // Switch to active mode
-    setTerminalMode('active')
+    try {
+      // Create terminal using Zustand store
+      await createTerminal({
+        type: model,
+        cwd: projectPath,
+        makeActive: true
+      })
+      
+      // Switch to active mode
+      setTerminalMode('active')
+    } catch (error) {
+      console.error('Failed to create terminal:', error)
+    }
   }, [createTerminal, projectPath, setTerminalMode])
 
   // Auto-switch to welcome mode when no terminals

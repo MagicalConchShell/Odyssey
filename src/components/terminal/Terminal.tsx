@@ -3,9 +3,10 @@
  *
  * This implements the SOTA architecture from terminal_architecture_v1.md
  * Pure component that only handles XTerm rendering - no session management
+ * Refactored to use specialized hooks for cleaner separation of concerns
  */
 
-import React, {useEffect, useRef, useCallback, useState} from 'react'
+import React, {useEffect, useRef, useCallback} from 'react'
 import {Terminal as XTerminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import {SearchAddon} from '@xterm/addon-search'
@@ -13,6 +14,9 @@ import {WebglAddon} from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import {useTheme} from '@/components/theme-provider'
 import {useTerminalStore} from './hooks/useTerminalStore'
+import {useTerminalSearch} from './hooks/useTerminalSearch'
+import {useTerminalResize} from './hooks/useTerminalResize'
+import {useTerminalShortcuts} from './hooks/useTerminalShortcuts'
 import {TerminalSearch} from './TerminalSearch'
 import {terminalLogger} from '@/utils/logger'
 
@@ -31,9 +35,16 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     setTerminalInstance
   } = useTerminalStore()
 
-  // Search state
-  const [isSearchVisible, setIsSearchVisible] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
+  // Use specialized hooks
+  const search = useTerminalSearch(terminalId)
+  useTerminalResize(terminalId, terminalRef)
+
+  // Use terminal shortcuts hook
+  useTerminalShortcuts(terminalRef, {
+    onSearchToggle: () => search.setIsSearchVisible(true),
+    onSearchClose: search.handleSearchClose,
+    isSearchVisible: search.isSearchVisible
+  })
 
   // Terminal themes
   const terminalTheme = {
@@ -92,12 +103,11 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
 
     let terminal: XTerminal
     let needsEventHandlers = true
-    
+
     if (instance) {
       terminalLogger.verbose('Using existing XTerm instance', {terminalId})
-      
-      // ⚠️ IMPORTANT: Check if this instance already has event handlers
-      // If it does, we should NOT create new ones to avoid duplicates
+
+      // Check if this instance already has event handlers
       const hasExistingHandlers = instance.disposables && instance.disposables.length > 0
       if (hasExistingHandlers) {
         return instance
@@ -125,7 +135,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
 
     // Get existing addons or create new ones
     let fitAddon, searchAddon, webglAddon
-    
+
     if (instance && !needsEventHandlers) {
       // This shouldn't happen based on our logic above, but just in case
       return instance
@@ -153,7 +163,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
 
     // Only create event handlers if needed (to prevent duplicates)
     let inputDisposable, resizeDisposable
-    
+
     if (needsEventHandlers) {
       // Handle user input - write to backend
       inputDisposable = terminal.onData((data) => {
@@ -188,56 +198,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     return instance
   }, [terminalId, theme, writeToTerminal, resizeTerminal, getTerminalInstance, setTerminalInstance])
 
-  // Setup backend event listeners - integrated with store
-  const setupBackendListeners = useCallback(() => {
-    // With unified ID system, terminalId === backendSessionId
-    const backendSessionId = terminalId
-
-    terminalLogger.debug('Setting up listeners for terminal', {terminalId})
-
-    // Subscribe to events using the store's event management
-    const { subscribeToTerminalEvents } = useTerminalStore.getState()
-    subscribeToTerminalEvents(terminalId, backendSessionId)
-
-    // Return cleanup function
-    return () => {
-      const { unsubscribeFromTerminalEvents } = useTerminalStore.getState()
-      unsubscribeFromTerminalEvents(terminalId)
-    }
-  }, [terminalId])
-
-  // Handle resize with debouncing
-  const handleResize = useCallback(() => {
-    const instance = getTerminalInstance(terminalId)
-
-    if (!instance?.fitAddon || !instance?.xterm) {
-      terminalLogger.warn(`Cannot resize terminal - missing addon or xterm instance`, { terminalId })
-      return
-    }
-
-    if (!terminalRef.current) {
-      terminalLogger.warn(`Cannot resize terminal - no DOM element`, { terminalId })
-      return
-    }
-
-    try {
-      // Check if the container has actual dimensions
-      const rect = terminalRef.current.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) {
-        terminalLogger.warn(`Cannot resize terminal - container has zero dimensions`, { terminalId, rect })
-        return
-      }
-
-      instance.fitAddon.fit()
-      const {cols, rows} = instance.xterm
-      terminalLogger.debug(`Resized terminal: ${cols}x${rows}`, { terminalId, container: rect })
-      resizeTerminal(terminalId, cols, rows)
-    } catch (error) {
-      terminalLogger.error(`Resize error for terminal`, { terminalId, error })
-    }
-  }, [terminalId, resizeTerminal, getTerminalInstance])
-
-  // Initialize terminal and setup listeners
+  // Initialize terminal
   useEffect(() => {
     const instance = getOrCreateXTermInstance()
 
@@ -262,14 +223,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       }, 100)
     }
 
-    const cleanupListeners = setupBackendListeners()
-
-    return () => {
-      cleanupListeners?.()
-    }
-  }, [terminalId, getOrCreateXTermInstance, setupBackendListeners, resizeTerminal])
-
-  // Note: Removed session mapping dependency with unified ID system
+  }, [terminalId, getOrCreateXTermInstance, resizeTerminal])
 
   // Handle theme changes
   useEffect(() => {
@@ -285,145 +239,13 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
   }, [theme, terminalId, getTerminalInstance])
 
-  // Handle window resize and container changes with ResizeObserver
-  useEffect(() => {
-    let resizeTimeout: NodeJS.Timeout
-    let resizeObserver: ResizeObserver | null = null
-
-    const debouncedResize = () => {
-      clearTimeout(resizeTimeout)
-      resizeTimeout = setTimeout(handleResize, 100)
-    }
-
-    // Handle window resize
-    window.addEventListener('resize', debouncedResize)
-
-    // Handle container size changes with ResizeObserver
-    if (terminalRef.current && 'ResizeObserver' in window) {
-      resizeObserver = new ResizeObserver(() => {
-        debouncedResize()
-      })
-      resizeObserver.observe(terminalRef.current)
-    }
-
-    return () => {
-      window.removeEventListener('resize', debouncedResize)
-      clearTimeout(resizeTimeout)
-      if (resizeObserver) {
-        resizeObserver.disconnect()
-      }
-    }
-  }, [handleResize])
-
-  // Search functions
-  const handleSearch = useCallback((query: string, options: {
-    caseSensitive?: boolean;
-    wholeWord?: boolean;
-    regex?: boolean
-  }) => {
-    const instance = getTerminalInstance(terminalId)
-    if (instance?.searchAddon && query.trim()) {
-      const searchOptions = {
-        caseSensitive: options.caseSensitive || false,
-        wholeWord: options.wholeWord || false,
-        regex: options.regex || false
-      }
-
-      try {
-        const found = instance.searchAddon.findNext(query, searchOptions)
-        setSearchQuery(query)
-        terminalLogger.debug(`Search "${query}" found: ${found}`, { terminalId })
-        return found
-      } catch (error) {
-        terminalLogger.error(`Search error`, { terminalId, error })
-        return false
-      }
-    }
-    return false
-  }, [terminalId, getTerminalInstance])
-
-  const handleSearchNext = useCallback(() => {
-    const instance = getTerminalInstance(terminalId)
-    if (instance?.searchAddon && searchQuery.trim()) {
-      try {
-        const found = instance.searchAddon.findNext(searchQuery)
-        terminalLogger.debug(`Search next found: ${found}`, { terminalId })
-        return found
-      } catch (error) {
-        terminalLogger.error(`Search next error`, { terminalId, error })
-        return false
-      }
-    }
-    return false
-  }, [terminalId, getTerminalInstance, searchQuery])
-
-  const handleSearchPrevious = useCallback(() => {
-    const instance = getTerminalInstance(terminalId)
-    if (instance?.searchAddon && searchQuery.trim()) {
-      try {
-        const found = instance.searchAddon.findPrevious(searchQuery)
-        terminalLogger.debug(`Search previous found: ${found}`, { terminalId })
-        return found
-      } catch (error) {
-        terminalLogger.error(`Search previous error`, { terminalId, error })
-        return false
-      }
-    }
-    return false
-  }, [terminalId, getTerminalInstance, searchQuery])
-
-  const handleSearchClear = useCallback(() => {
-    const instance = getTerminalInstance(terminalId)
-    if (instance?.searchAddon) {
-      try {
-        instance.searchAddon.clearDecorations()
-        setSearchQuery('')
-        terminalLogger.debug(`Search cleared`, { terminalId })
-      } catch (error) {
-        terminalLogger.error(`Search clear error`, { terminalId, error })
-      }
-    }
-  }, [terminalId, getTerminalInstance])
-
-  const handleSearchClose = useCallback(() => {
-    handleSearchClear()
-    setIsSearchVisible(false)
-  }, [handleSearchClear])
-
-  // Global keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle shortcuts if this terminal is visible/active
-      if (terminalRef.current?.parentElement?.parentElement?.classList.contains('hidden')) {
-        return
-      }
-
-      // Ctrl+F or Cmd+F to open search
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault()
-        setIsSearchVisible(true)
-      }
-
-      if (e.key === 'Escape' && isSearchVisible) {
-        e.preventDefault()
-        handleSearchClose()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isSearchVisible, handleSearchClose])
-
-
   // Cleanup on unmount - only dispose if terminal is being removed
   useEffect(() => {
     return () => {
       // Note: We don't dispose XTerm instances here because they should persist
       // across tab switches. Only dispose when the terminal is actually removed
       // from the store (handled in removeTerminal action)
-      terminalLogger.debug(`Component unmounting`, { terminalId })
+      terminalLogger.debug(`Component unmounting`, {terminalId})
     }
   }, [terminalId])
 
@@ -441,12 +263,12 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
 
       {/* Search UI */}
       <TerminalSearch
-        isVisible={isSearchVisible}
-        onClose={handleSearchClose}
-        onSearch={handleSearch}
-        onNext={handleSearchNext}
-        onPrevious={handleSearchPrevious}
-        onClear={handleSearchClear}
+        isVisible={search.isSearchVisible}
+        onClose={search.handleSearchClose}
+        onSearch={search.handleSearch}
+        onNext={search.handleSearchNext}
+        onPrevious={search.handleSearchPrevious}
+        onClear={search.handleSearchClear}
       />
     </div>
   )
