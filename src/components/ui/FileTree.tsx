@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getFileIcon } from '../project/lib/file-utils'
+import { useFileTreeStore } from './hooks/useFileTreeStore'
 
 export interface FileTreeItem {
   path: string
@@ -21,6 +21,7 @@ export interface FileTreeProps {
   formatFileSize?: (bytes: number) => string
   showFileInfo?: boolean
   showGitStatus?: boolean
+  recentlyChangedFiles?: Set<string>
 }
 
 interface FileTreeNodeProps {
@@ -30,14 +31,26 @@ interface FileTreeNodeProps {
   formatFileSize?: (bytes: number) => string
   showFileInfo?: boolean
   showGitStatus?: boolean
+  recentlyChangedFiles?: Set<string>
 }
 
-const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, showGitStatus }: FileTreeNodeProps) => {
-  const [isExpanded, setIsExpanded] = useState(true)
+const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, showGitStatus, recentlyChangedFiles }: FileTreeNodeProps) => {
+  const { isExpanded: isPathExpanded, togglePath } = useFileTreeStore()
+  
+  // Use store-based expansion state for directories
+  // New directories not in the store will return false (collapsed by default)
+  const isExpanded = item.isDirectory ? 
+    isPathExpanded(item.fullPath || item.path) : 
+    false
+  
+  // Check if this file is recently changed
+  const isRecentlyChanged = recentlyChangedFiles?.has(item.path) || false
   
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setIsExpanded(!isExpanded)
+    if (item.isDirectory) {
+      togglePath(item.fullPath || item.path)
+    }
   }
   
   const handleClick = () => {
@@ -52,8 +65,11 @@ const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, 
     <div>
       <div
         className={cn(
-          "flex items-center gap-2 py-1 px-2 hover:bg-accent/50 cursor-pointer rounded-sm transition-colors",
-          "group"
+          "flex items-center gap-2 py-1 px-2 hover:bg-accent/50 cursor-pointer rounded-sm transition-all duration-300",
+          "group",
+          {
+            "bg-blue-50/30 border-l-2 border-l-blue-400 animate-pulse": isRecentlyChanged
+          }
         )}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
         onClick={handleClick}
@@ -137,6 +153,7 @@ const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, 
               formatFileSize={formatFileSize}
               showFileInfo={showFileInfo}
               showGitStatus={showGitStatus}
+              recentlyChangedFiles={recentlyChangedFiles}
             />
           ))}
         </div>
@@ -151,7 +168,8 @@ export const FileTree = ({
   className, 
   formatFileSize,
   showFileInfo = true,
-  showGitStatus = false 
+  showGitStatus = false,
+  recentlyChangedFiles
 }: FileTreeProps) => {
   if (items.length === 0) {
     return (
@@ -173,6 +191,7 @@ export const FileTree = ({
           formatFileSize={formatFileSize}
           showFileInfo={showFileInfo}
           showGitStatus={showGitStatus}
+          recentlyChangedFiles={recentlyChangedFiles}
         />
       ))}
     </div>

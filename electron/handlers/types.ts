@@ -299,3 +299,21 @@ export interface GitStatusResult {
   files: GitFileStatus[]
   summary: GitStatusSummary
 }
+
+// ===================
+// File System Watching Types
+// ===================
+
+export type FileSystemEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+
+export interface FileSystemChangeEvent {
+  projectPath: string;
+  eventType: FileSystemEventType;
+  filePath: string;
+  relativePath: string;
+  stats?: {
+    size: number;
+    modified: string;
+    isDirectory: boolean;
+  };
+}

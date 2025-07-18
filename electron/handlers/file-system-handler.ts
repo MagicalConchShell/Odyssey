@@ -1,7 +1,8 @@
 import { IpcMain, BrowserWindow } from 'electron';
-import { readdir, readFile, writeFile, mkdir, stat, lstat, watch } from 'fs/promises';
+import { readdir, readFile, writeFile, mkdir, stat, lstat } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import chokidar, { FSWatcher } from 'chokidar';
 import { registerHandler } from './base-handler.js';
 import {
   ClaudeMdFile,
@@ -23,40 +24,6 @@ async function writeFileContent(filePath: string, content: string): Promise<void
   await writeFile(filePath, content, 'utf8');
 }
 
-/**
- * Common ignored patterns for file tree
- */
-const DEFAULT_IGNORE_PATTERNS = [
-  '.git',
-  '.DS_Store',
-  'node_modules',
-  'dist',
-  'build',
-  '.next',
-  '.nuxt',
-  '.vscode',
-  '.idea',
-  'coverage',
-  '.nyc_output',
-  '.cache',
-  'tmp',
-  'temp',
-  '*.tmp',
-  '*.log'
-];
-
-/**
- * Check if a file/directory should be ignored
- */
-function shouldIgnore(name: string, ignorePatterns: string[] = DEFAULT_IGNORE_PATTERNS): boolean {
-  return ignorePatterns.some(pattern => {
-    if (pattern.includes('*')) {
-      const regex = new RegExp(pattern.replace(/\*/g, '.*'));
-      return regex.test(name);
-    }
-    return name === pattern;
-  });
-}
 
 /**
  * Recursively build file tree structure
@@ -77,11 +44,6 @@ async function buildFileTree(
     const entries = await readdir(dirPath);
     
     for (const entry of entries) {
-      // Skip ignored files and directories
-      if (shouldIgnore(entry)) {
-        continue;
-      }
-      
       try {
         const fullPath = join(dirPath, entry);
         const stats = await lstat(fullPath);
@@ -313,11 +275,31 @@ function decodeProjectPath(encoded: string): string {
 }
 
 /**
- * File system watcher management
+ * File system change event types
+ */
+export type FileSystemEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+
+/**
+ * File system change event data
+ */
+export interface FileSystemChangeEvent {
+  projectPath: string;
+  eventType: FileSystemEventType;
+  filePath: string;
+  relativePath: string;
+  stats?: {
+    size: number;
+    modified: string;
+    isDirectory: boolean;
+  };
+}
+
+/**
+ * File system watcher management using chokidar
  */
 class FileSystemWatcher {
   private static instance: FileSystemWatcher;
-  private watchers: Map<string, AbortController> = new Map();
+  private watchers: Map<string, FSWatcher> = new Map();
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private mainWindow: BrowserWindow | null = null;
 
@@ -339,61 +321,102 @@ class FileSystemWatcher {
     this.stopWatching(projectPath);
 
     try {
-      const abortController = new AbortController();
-      this.watchers.set(projectPath, abortController);
-
-      const watcher = watch(projectPath, { 
-        recursive: true, 
-        signal: abortController.signal 
+      // Create chokidar watcher with optimized options
+      const watcher = chokidar.watch(projectPath, {
+        persistent: true,
+        ignoreInitial: true, // Don't emit events for existing files on startup
+        followSymlinks: false,
+        depth: 10, // Limit recursion depth
+        awaitWriteFinish: {
+          stabilityThreshold: 300, // Wait for file to be stable for 300ms
+          pollInterval: 100
+        },
+        atomic: true // Handle atomic file writes properly
       });
 
-      for await (const event of watcher) {
-        if (event.filename) {
-          // Skip ignored files
-          if (shouldIgnore(event.filename)) {
-            continue;
-          }
-          
-          this.handleFileChange(projectPath, event);
-        }
-      }
+      this.watchers.set(projectPath, watcher);
+
+      // Set up event handlers
+      watcher
+        .on('add', (filePath: string, stats?: any) => {
+          this.handleFileEvent(projectPath, 'add', filePath, stats);
+        })
+        .on('change', (filePath: string, stats?: any) => {
+          this.handleFileEvent(projectPath, 'change', filePath, stats);
+        })
+        .on('unlink', (filePath: string) => {
+          this.handleFileEvent(projectPath, 'unlink', filePath);
+        })
+        .on('addDir', (dirPath: string, stats?: any) => {
+          this.handleFileEvent(projectPath, 'addDir', dirPath, stats);
+        })
+        .on('unlinkDir', (dirPath: string) => {
+          this.handleFileEvent(projectPath, 'unlinkDir', dirPath);
+        })
+        .on('error', (error: unknown) => {
+          console.error('[FileSystemWatcher] Chokidar error:', error);
+        })
+        .on('ready', () => {
+          console.log('[FileSystemWatcher] Chokidar ready, watching:', projectPath);
+        });
+
     } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        console.error('[FileSystemWatcher] Error watching directory:', error);
-      }
+      console.error('[FileSystemWatcher] Error setting up chokidar watcher:', error);
+      throw error;
     }
   }
 
-  private handleFileChange(projectPath: string, event: any): void {
-    const key = `${projectPath}:${event.filename}`;
+  private handleFileEvent(
+    projectPath: string, 
+    eventType: FileSystemEventType, 
+    filePath: string, 
+    stats?: any
+  ): void {
+    const relativePath = filePath.replace(projectPath, '').replace(/^[\/\\]/, '');
+    const key = `${projectPath}:${eventType}:${relativePath}`;
     
-    // Clear existing timer for this file
+    // Clear existing timer for this specific event
     if (this.debounceTimers.has(key)) {
       clearTimeout(this.debounceTimers.get(key)!);
     }
     
     // Set new debounced timer
     const timer = setTimeout(() => {
-      console.log('[FileSystemWatcher] File changed:', event.filename, 'in', projectPath);
-      this.notifyFileChange(projectPath);
+      console.log('[FileSystemWatcher] File event:', eventType, relativePath, 'in', projectPath);
+      
+      const changeEvent: FileSystemChangeEvent = {
+        projectPath,
+        eventType,
+        filePath,
+        relativePath,
+        stats: stats ? {
+          size: stats.size || 0,
+          modified: stats.mtime ? stats.mtime.toISOString() : new Date().toISOString(),
+          isDirectory: stats.isDirectory() || eventType === 'addDir' || eventType === 'unlinkDir'
+        } : undefined
+      };
+      
+      this.notifyFileChange(changeEvent);
       this.debounceTimers.delete(key);
-    }, 300); // 300ms debounce
+    }, 200); // Reduced debounce time for better responsiveness
     
     this.debounceTimers.set(key, timer);
   }
 
-  private notifyFileChange(projectPath: string): void {
+  private notifyFileChange(changeEvent: FileSystemChangeEvent): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('file-system-changed', { projectPath });
+      this.mainWindow.webContents.send('file-system-changed', changeEvent);
     }
   }
 
   stopWatching(projectPath: string): void {
     console.log('[FileSystemWatcher] Stopping watch for:', projectPath);
     
-    const controller = this.watchers.get(projectPath);
-    if (controller) {
-      controller.abort();
+    const watcher = this.watchers.get(projectPath);
+    if (watcher) {
+      watcher.close().catch((error: unknown) => {
+        console.error('[FileSystemWatcher] Error closing watcher:', error);
+      });
       this.watchers.delete(projectPath);
     }
 

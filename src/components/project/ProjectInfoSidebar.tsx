@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
   FolderOpen,
@@ -6,7 +6,9 @@ import {
   Settings,
   Loader2,
   AlertCircle,
-  Plus
+  Plus,
+  ChevronsDownUp,
+  ChevronsUpDown
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -23,9 +25,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 // Import timeline and file components
 import { GitTimelineTree, type GitTimelineTreeRef } from '../git-timeline/GitTimelineTree'
 import { FileTree } from '@/components/ui/FileTree'
+import { useFileTreeStore } from '@/components/ui/hooks/useFileTreeStore'
 
 // Types
 import type { Project, ProjectSettings } from './lib/projectState'
+import type { FileSystemChangeEvent } from '@/types/electron'
 
 interface ProjectInfoSidebarProps {
   project?: Project
@@ -54,6 +58,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   const [projectFiles, setProjectFiles] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [recentlyChangedFiles, setRecentlyChangedFiles] = useState<Set<string>>(new Set())
   
   // Checkpoint dialog state
   const [checkpointDialogOpen, setCheckpointDialogOpen] = useState(false)
@@ -61,6 +66,9 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   
   // Timeline ref
   const timelineTreeRef = useRef<GitTimelineTreeRef>(null)
+  
+  // File tree store
+  const { expandAll, collapseAll } = useFileTreeStore()
 
   // Project settings state
   const [projectSettings, setProjectSettings] = useState<ProjectSettings>({
@@ -79,83 +87,50 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   const expandedWidth = 320
   const currentWidth = isCollapsed ? collapsedWidth : expandedWidth
 
+  // Function to add a file to recently changed and auto-remove after timeout
+  const addRecentlyChangedFile = useCallback((filePath: string) => {
+    setRecentlyChangedFiles(prev => new Set(prev).add(filePath))
+    
+    // Remove the file from recently changed after 3 seconds
+    setTimeout(() => {
+      setRecentlyChangedFiles(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(filePath)
+        return newSet
+      })
+    }, 3000)
+  }, [])
 
-  // Load project files when files tab is active
-  useEffect(() => {
-    if (activeTab === 'files') {
-      loadProjectFiles()
+  // Helper function to collect all directory paths from file tree
+  const collectAllDirectoryPaths = useCallback((items: any[]): string[] => {
+    const paths: string[] = []
+    
+    const traverse = (fileItems: any[]) => {
+      fileItems.forEach(item => {
+        if (item.isDirectory) {
+          paths.push(item.fullPath || item.path)
+          if (item.children) {
+            traverse(item.children)
+          }
+        }
+      })
     }
-  }, [activeTab, projectPath])
+    
+    traverse(items)
+    return paths
+  }, [])
 
-  // Start file system watcher when project path changes
-  useEffect(() => {
-    if (projectPath) {
-      window.electronAPI.fileSystem.startFileSystemWatcher(projectPath)
-        .then(() => {
-          console.log('[ProjectInfoSidebar] File system watcher started successfully')
-        })
-        .catch((error) => {
-          console.error('[ProjectInfoSidebar] Failed to start file system watcher:', error)
-        })
-    }
+  // File tree expansion handlers
+  const handleExpandAll = useCallback(() => {
+    const allDirectoryPaths = collectAllDirectoryPaths(projectFiles)
+    expandAll(allDirectoryPaths)
+  }, [projectFiles, expandAll, collectAllDirectoryPaths])
 
-    return () => {
-      if (projectPath) {
-        window.electronAPI.fileSystem.stopFileSystemWatcher(projectPath)
-          .catch((error) => {
-            console.error('[ProjectInfoSidebar] Failed to stop file system watcher:', error)
-          })
-      }
-    }
-  }, [projectPath])
+  const handleCollapseAll = useCallback(() => {
+    collapseAll()
+  }, [collapseAll])
 
-  // Listen for file system changes
-  useEffect(() => {
-    const handleFileSystemChange = (_event: any, data: { projectPath: string }) => {
-      if (data.projectPath === projectPath && activeTab === 'files') {
-        loadProjectFiles()
-      }
-    }
-
-    if (window.electronAPI.on) {
-      window.electronAPI.on('file-system-changed', handleFileSystemChange)
-    }
-
-    return () => {
-      if (window.electronAPI.removeListener) {
-        window.electronAPI.removeListener('file-system-changed', handleFileSystemChange)
-      }
-    }
-  }, [projectPath, activeTab])
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle shortcuts when not in input fields
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
-        return
-      }
-
-      // Handle Ctrl/Cmd + K for Create Checkpoint
-      if ((event.ctrlKey || event.metaKey) && event.key === 'k' && onCheckpointCreate && activeTab === 'timeline') {
-        event.preventDefault()
-        setCheckpointDialogOpen(true)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onCheckpointCreate, activeTab])
-
-  // Load project settings when settings tab is active
-  useEffect(() => {
-    if (activeTab === 'settings' && project) {
-      loadProjectSettings()
-    }
-  }, [activeTab, project])
-
-
-  const loadProjectFiles = async () => {
+  const loadProjectFiles = useCallback(async () => {
     
     if (!projectPath) {
       setError('No project path provided')
@@ -195,7 +170,117 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     } finally {
       setLoading(false)
     }
-  }
+  }, [projectPath])
+
+  // Load project files when files tab is active
+  useEffect(() => {
+    if (activeTab === 'files') {
+      loadProjectFiles()
+    }
+  }, [activeTab, projectPath, loadProjectFiles])
+
+  // Start file system watcher when project path changes
+  useEffect(() => {
+    if (projectPath) {
+      window.electronAPI.fileSystem.startFileSystemWatcher(projectPath)
+        .then(() => {
+          console.log('[ProjectInfoSidebar] File system watcher started successfully')
+        })
+        .catch((error) => {
+          console.error('[ProjectInfoSidebar] Failed to start file system watcher:', error)
+        })
+    }
+
+    return () => {
+      if (projectPath) {
+        window.electronAPI.fileSystem.stopFileSystemWatcher(projectPath)
+          .catch((error) => {
+            console.error('[ProjectInfoSidebar] Failed to stop file system watcher:', error)
+          })
+      }
+    }
+  }, [projectPath])
+
+  // Listen for file system changes
+  useEffect(() => {
+    const handleFileSystemChange = (_event: any, changeEvent: FileSystemChangeEvent) => {
+      if (changeEvent.projectPath === projectPath) {
+        console.log('[ProjectInfoSidebar] File system change detected:', changeEvent)
+        
+        // Add visual feedback for the changed file
+        addRecentlyChangedFile(changeEvent.relativePath)
+        
+        // Only reload if files tab is active to avoid unnecessary work
+        if (activeTab === 'files') {
+          // Handle incremental updates based on event type
+          switch (changeEvent.eventType) {
+            case 'add':
+            case 'addDir':
+              // For now, reload the entire tree to ensure proper parent-child relationships
+              // TODO: Implement smart incremental insertion
+              loadProjectFiles()
+              break
+            
+            case 'change':
+              // File content changed, we may want to update file metadata (size, modified time)
+              // For now, reload to get updated metadata
+              loadProjectFiles()
+              break
+            
+            case 'unlink':
+            case 'unlinkDir':
+              // File or directory was deleted, reload to remove from tree
+              // TODO: Implement smart incremental removal
+              loadProjectFiles()
+              break
+            
+            default:
+              // Unknown event type, reload as fallback
+              loadProjectFiles()
+              break
+          }
+        }
+      }
+    }
+
+    if (window.electronAPI.on) {
+      window.electronAPI.on('file-system-changed', handleFileSystemChange)
+    }
+
+    return () => {
+      if (window.electronAPI.removeListener) {
+        window.electronAPI.removeListener('file-system-changed', handleFileSystemChange)
+      }
+    }
+  }, [projectPath, activeTab, loadProjectFiles, addRecentlyChangedFile])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle shortcuts when not in input fields
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // Handle Ctrl/Cmd + K for Create Checkpoint
+      if ((event.ctrlKey || event.metaKey) && event.key === 'k' && onCheckpointCreate && activeTab === 'timeline') {
+        event.preventDefault()
+        setCheckpointDialogOpen(true)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onCheckpointCreate, activeTab])
+
+  // Load project settings when settings tab is active
+  useEffect(() => {
+    if (activeTab === 'settings' && project) {
+      loadProjectSettings()
+    }
+  }, [activeTab, project])
+
+
 
   const mergeGitStatusWithFiles = (files: any[], gitStatusData: any) => {
     if (!gitStatusData || !gitStatusData.files) {
@@ -478,19 +563,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
               {/* Project Files Content */}
               {activeTab === 'files' && (
                 <div className="h-full flex flex-col">
-                  {/* Project Path Header */}
-                  {projectPath && (
-                    <div className="p-3 border-b border-border">
-                      <div className="flex items-center gap-2">
-                        <FolderOpen className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground font-medium">Project Path</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={projectPath}>
-                        {projectPath.length > 50 ? '...' + projectPath.slice(-47) : projectPath}
-                      </div>
-                    </div>
-                  )}
-                  
                   <div className="flex-1 overflow-auto">
                     {(() => {
                       return null;
@@ -510,16 +582,42 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                         </div>
                       </div>
                     ) : projectFiles.length > 0 ? (
-                      <div className="p-2">
-                        {(() => {
-                          return null;
-                        })()}
-                        <FileTree
-                          items={projectFiles}
-                          onItemClick={handleFileClick}
-                          className="text-xs"
-                          showGitStatus={true}
-                        />
+                      <div className="flex flex-col h-full">
+                        {/* File Tree Controls */}
+                        <div className="flex items-center justify-between p-2 border-b border-border">
+                          <span className="text-xs font-medium text-muted-foreground">Files</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleExpandAll}
+                              className="h-6 w-6 p-0"
+                              title="Expand All"
+                            >
+                              <ChevronsUpDown className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleCollapseAll}
+                              className="h-6 w-6 p-0"
+                              title="Collapse All"
+                            >
+                              <ChevronsDownUp className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        {/* File Tree */}
+                        <div className="flex-1 overflow-auto p-2">
+                          <FileTree
+                            items={projectFiles}
+                            onItemClick={handleFileClick}
+                            className="text-xs"
+                            showGitStatus={true}
+                            recentlyChangedFiles={recentlyChangedFiles}
+                          />
+                        </div>
                       </div>
                     ) : (
                       <div className="flex items-center justify-center h-32 text-center p-4">

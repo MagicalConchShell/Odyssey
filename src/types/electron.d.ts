@@ -26,7 +26,9 @@ export type {
   ScreenshotResponse,
   ProjectCreateRequest,
   ProjectUpdateRequest,
-  ClaudeProjectImportCandidate
+  ClaudeProjectImportCandidate,
+  FileSystemEventType,
+  FileSystemChangeEvent
 } from '../../electron/handlers/types';
 
 // Additional frontend-specific types
