@@ -98,17 +98,37 @@ const initialState: ProjectState = {
 export function projectReducer(state: ProjectState, action: ProjectAction): ProjectState {
   switch (action.type) {
     case 'SET_PROJECT':
+      // Validate project data
+      const project = action.payload
+      if (!project || !project.path || project.path.trim() === '') {
+        console.error('[ProjectState] Invalid project data:', project)
+        return state
+      }
+      
+      const normalizedPath = project.path.trim()
+      console.log('[ProjectState] Setting project:', { id: project.id, path: normalizedPath })
+      
       return {
         ...state,
-        currentProject: action.payload,
-        projectPath: action.payload.path,
-        projectSettings: { ...state.projectSettings, ...action.payload.settings }
+        currentProject: { ...project, path: normalizedPath },
+        projectPath: normalizedPath,
+        projectSettings: { ...state.projectSettings, ...project.settings }
       }
     
     case 'SET_PROJECT_PATH':
+      // Validate and normalize the project path
+      const newPath = action.payload
+      if (!newPath || typeof newPath !== 'string' || newPath.trim() === '') {
+        console.warn('[ProjectState] Invalid project path:', newPath)
+        return state
+      }
+      
+      const normalizedNewPath = newPath.trim()
+      console.log('[ProjectState] Setting project path:', { from: state.projectPath, to: normalizedNewPath })
+      
       return {
         ...state,
-        projectPath: action.payload
+        projectPath: normalizedNewPath
       }
     
     case 'UPDATE_PROJECT_SETTINGS':

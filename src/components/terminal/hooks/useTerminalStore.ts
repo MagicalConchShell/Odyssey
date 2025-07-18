@@ -477,8 +477,16 @@ export const useTerminalStore = create<TerminalStore>()(
 
     // Session persistence - simplified
     saveTerminalState: async (projectPath) => {
+      // Validate project path
+      if (!projectPath || typeof projectPath !== 'string' || projectPath.trim() === '') {
+        storeLogger.error('Cannot save terminal state: invalid project path', { projectPath })
+        return
+      }
+
       try {
         const state = get()
+        storeLogger.info('ℹ️ Terminal state saved for project', { projectPath })
+        
         const serializedState = {
           terminals: state.terminals.map(terminal => ({
             id: terminal.id,
@@ -513,13 +521,19 @@ export const useTerminalStore = create<TerminalStore>()(
         }
 
         await window.electronAPI.fileSystem.writeFile(workspaceFile, JSON.stringify(workspaceData, null, 2))
-        storeLogger.info('Terminal state saved for project', {projectPath})
       } catch (error) {
         storeLogger.error('Failed to save terminal state', {projectPath, error})
+        throw error
       }
     },
 
     loadTerminalState: async (projectPath) => {
+      // Validate project path
+      if (!projectPath || typeof projectPath !== 'string' || projectPath.trim() === '') {
+        storeLogger.error('Cannot load terminal state: invalid project path', { projectPath })
+        return
+      }
+
       try {
         const workspaceFile = `${projectPath}/.odyssey/workspace.json`
         const data = await window.electronAPI.fileSystem.readFile(workspaceFile)
@@ -542,10 +556,12 @@ export const useTerminalStore = create<TerminalStore>()(
             activeTerminalId: workspaceData.terminals.activeTerminalId || null
           }))
 
-          storeLogger.info('Terminal state loaded for project', {projectPath})
+          storeLogger.info('Terminal state loaded for project', {projectPath, terminalCount: terminals.length})
+        } else {
+          storeLogger.debug('🔍 No terminal state found to load', { projectPath })
         }
       } catch (error) {
-        storeLogger.debug('No terminal state found to load', {
+        storeLogger.debug('🔍 No terminal state found to load', {
           projectPath,
           message: error instanceof Error ? error.message : String(error)
         })

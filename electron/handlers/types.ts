@@ -169,6 +169,16 @@ export interface FileTreeItem {
   children?: FileTreeItem[]
 }
 
+// Optimized file node for incremental loading
+export interface FileNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  isExpandable?: boolean // For directories, indicates if it has children
+  size?: number
+  modified?: string
+}
+
 export interface ProjectStats {
   fileCount: number
   totalSize: number

@@ -25,11 +25,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 // Import timeline and file components
 import { GitTimelineTree, type GitTimelineTreeRef } from '../git-timeline/GitTimelineTree'
 import { FileTree } from '@/components/ui/FileTree'
-import { useFileTreeStore } from '@/components/ui/hooks/useFileTreeStore'
+import { useFileTreeStore, TreeNode } from '@/components/ui/hooks/useFileTreeStore'
 
 // Types
 import type { Project, ProjectSettings } from './lib/projectState'
 import type { FileSystemChangeEvent } from '@/types/electron'
+import type { FileNode } from '../../../electron/handlers/types'
 
 interface ProjectInfoSidebarProps {
   project?: Project
@@ -67,8 +68,8 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   // Timeline ref
   const timelineTreeRef = useRef<GitTimelineTreeRef>(null)
   
-  // File tree store
-  const { expandAll, collapseAll } = useFileTreeStore()
+  // File tree store - updated for lazy loading
+  const { expandAll, collapseAll, addNode, addChildren, reset: resetFileTree, setNodeLoading } = useFileTreeStore()
 
   // Project settings state
   const [projectSettings, setProjectSettings] = useState<ProjectSettings>({
@@ -101,34 +102,65 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     }, 3000)
   }, [])
 
-  // Helper function to collect all directory paths from file tree
-  const collectAllDirectoryPaths = useCallback((items: any[]): string[] => {
-    const paths: string[] = []
-    
-    const traverse = (fileItems: any[]) => {
-      fileItems.forEach(item => {
-        if (item.isDirectory) {
-          paths.push(item.fullPath || item.path)
-          if (item.children) {
-            traverse(item.children)
-          }
-        }
-      })
-    }
-    
-    traverse(items)
-    return paths
-  }, [])
-
-  // File tree expansion handlers
+  // File tree expansion handlers - updated for new store structure
   const handleExpandAll = useCallback(() => {
-    const allDirectoryPaths = collectAllDirectoryPaths(projectFiles)
+    const { nodes } = useFileTreeStore.getState()
+    const allDirectoryPaths = Object.keys(nodes).filter(path => nodes[path].type === 'directory')
     expandAll(allDirectoryPaths)
-  }, [projectFiles, expandAll, collectAllDirectoryPaths])
+  }, [expandAll])
 
   const handleCollapseAll = useCallback(() => {
     collapseAll()
   }, [collapseAll])
+
+  // Convert FileNode to TreeNode format
+  const convertFileNodeToTreeNode = useCallback((fileNode: FileNode, parentPath?: string, level: number = 0): TreeNode => {
+    return {
+      id: fileNode.path,
+      name: fileNode.name,
+      type: fileNode.type,
+      level,
+      parentId: parentPath,
+      isExpanded: false,
+      isLoading: false,
+      isExpandable: fileNode.isExpandable,
+      size: fileNode.size,
+      modified: fileNode.modified,
+    }
+  }, [])
+
+  // Handle lazy loading of directory children
+  const handleNodeExpand = useCallback(async (path: string) => {
+    if (!projectPath) return
+
+    setNodeLoading(path, true)
+
+    try {
+      console.log('[ProjectInfoSidebar] Loading children for:', path)
+      const result = await window.electronAPI.fileSystem.getDirectoryChildren(path)
+
+      if (result.success && result.data) {
+        // Convert FileNodes to TreeNodes
+        const parentNode = useFileTreeStore.getState().nodes[path]
+        const level = parentNode ? parentNode.level + 1 : 0
+        
+        const childNodes = result.data.map((fileNode: FileNode) => 
+          convertFileNodeToTreeNode(fileNode, path, level)
+        )
+
+        // Add children to store
+        addChildren(path, childNodes)
+        
+        console.log('[ProjectInfoSidebar] Added', childNodes.length, 'children to', path)
+      } else {
+        console.error('[ProjectInfoSidebar] Failed to load directory children:', result.error)
+      }
+    } catch (err: any) {
+      console.error('[ProjectInfoSidebar] Error loading directory children:', err)
+    } finally {
+      setNodeLoading(path, false)
+    }
+  }, [projectPath, convertFileNodeToTreeNode, addChildren, setNodeLoading])
 
   const loadProjectFiles = useCallback(async () => {
     
@@ -146,22 +178,34 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     setError(null)
 
     try {
-      // Load project file tree and git status in parallel
-      const [filesResult, gitStatusResult] = await Promise.all([
-        window.electronAPI.fileSystem.readDirectory(projectPath),
-        window.electronAPI.gitCheckpoint.getGitStatus(projectPath)
-      ])
+      // Reset the file tree store
+      resetFileTree()
+      
+      // Load root directory using new optimized API
+      const result = await window.electronAPI.fileSystem.getDirectoryChildren(projectPath)
 
-      if (filesResult.success && filesResult.data) {
+      if (result.success && result.data) {
+        // Convert FileNodes to TreeNodes and add to store
+        const rootNodes = result.data.map((fileNode: FileNode) => 
+          convertFileNodeToTreeNode(fileNode, undefined, 0)
+        )
+
+        // Add root nodes to store
+        rootNodes.forEach((node: TreeNode) => addNode(node))
         
-        // Merge git status with file data
-        const filesWithGitStatus = mergeGitStatusWithFiles(filesResult.data, gitStatusResult.data)
+        // Set root IDs in store
+        const rootIds = rootNodes.map((node: TreeNode) => node.id)
+        useFileTreeStore.setState({ rootIds })
         
-        setProjectFiles(filesWithGitStatus)
+        // For backward compatibility, also set projectFiles
+        // This can be removed once everything uses the new store
+        setProjectFiles(result.data)
+        
+        console.log('[ProjectInfoSidebar] Loaded', rootNodes.length, 'root nodes')
       } else {
         setProjectFiles([])
-        if (!filesResult.success) {
-          setError(filesResult.error || 'Failed to read directory')
+        if (!result.success) {
+          setError(result.error || 'Failed to read directory')
         }
       }
     } catch (err: any) {
@@ -170,7 +214,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     } finally {
       setLoading(false)
     }
-  }, [projectPath])
+  }, [projectPath, resetFileTree, convertFileNodeToTreeNode, addNode])
 
   // Load project files when files tab is active
   useEffect(() => {
@@ -282,23 +326,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
 
 
 
-  const mergeGitStatusWithFiles = (files: any[], gitStatusData: any) => {
-    if (!gitStatusData || !gitStatusData.files) {
-      return files
-    }
-
-    // Create a map of file paths to their git status
-    const gitStatusMap = new Map()
-    gitStatusData.files.forEach((file: any) => {
-      gitStatusMap.set(file.path, file.status)
-    })
-
-    // Add git status to each file
-    return files.map(file => ({
-      ...file,
-      gitStatus: gitStatusMap.get(file.path) || null
-    }))
-  }
 
   const loadProjectSettings = async () => {
     if (!project) return
@@ -611,7 +638,8 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                         {/* File Tree */}
                         <div className="flex-1 overflow-auto p-2">
                           <FileTree
-                            items={projectFiles}
+                            rootPath={projectPath}
+                            onNodeExpand={handleNodeExpand}
                             onItemClick={handleFileClick}
                             className="text-xs"
                             showGitStatus={true}

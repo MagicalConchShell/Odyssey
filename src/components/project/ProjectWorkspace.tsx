@@ -41,9 +41,15 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   // Initialize project state
   useEffect(() => {
     if (project) {
+      console.log('[ProjectWorkspace] Setting project from prop:', project.path)
       setProject(project)
-    } else if (initialProjectPath) {
-      setProjectPath(initialProjectPath)
+    } else if (initialProjectPath && initialProjectPath.trim() !== '') {
+      // Validate the project path before setting
+      const normalizedPath = initialProjectPath.trim()
+      if (normalizedPath !== projectPath) {
+        console.log('[ProjectWorkspace] Setting project path:', { from: projectPath, to: normalizedPath })
+        setProjectPath(normalizedPath)
+      }
     }
   }, [project, initialProjectPath, setProject, setProjectPath, projectPath])
 
@@ -101,6 +107,13 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   }
 
   const handleProjectSelect = (newProject: Project) => {
+    // Validate project data before setting
+    if (!newProject || !newProject.path || newProject.path.trim() === '') {
+      console.error('[ProjectWorkspace] Invalid project selected:', newProject)
+      return
+    }
+    
+    console.log('[ProjectWorkspace] Project selected:', { id: newProject.id, path: newProject.path })
     setProject(newProject)
     if (onProjectSelect) {
       onProjectSelect(newProject)

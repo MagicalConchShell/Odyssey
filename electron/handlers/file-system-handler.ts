@@ -6,8 +6,10 @@ import chokidar, { FSWatcher } from 'chokidar';
 import { registerHandler } from './base-handler.js';
 import {
   ClaudeMdFile,
-  FileTreeItem
+  FileTreeItem,
+  FileNode
 } from './types.js';
+import { FS_CHANNELS } from '../ipc-channels.js';
 
 /**
  * Read file content as UTF-8 string
@@ -111,6 +113,89 @@ async function readDirectoryContents(dirPath: string): Promise<FileTreeItem[]> {
   console.log('[FileSystem] File tree built   with', items.length, 'root items');
   
   return items;
+}
+
+/**
+ * Get directory children for incremental loading (performance optimized)
+ * Only returns immediate children of the specified directory
+ */
+async function getDirectoryChildren(dirPath: string): Promise<FileNode[]> {
+  console.log('[FileSystem] getDirectoryChildren called with dirPath:', dirPath);
+  
+  // Validate input
+  if (!dirPath || typeof dirPath !== 'string') {
+    console.error('[FileSystem] Invalid dirPath provided:', dirPath);
+    throw new Error('Invalid directory path provided');
+  }
+  
+  // Check if path exists and is a directory
+  try {
+    const stats = await stat(dirPath);
+    if (!stats.isDirectory()) {
+      console.error('[FileSystem] Path exists but is not a directory:', dirPath);
+      throw new Error('Path is not a directory');
+    }
+  } catch (error) {
+    console.error('[FileSystem] Error accessing directory:', error);
+    throw error;
+  }
+  
+  const nodes: FileNode[] = [];
+  
+  try {
+    const dirents = await readdir(dirPath, { withFileTypes: true });
+    
+    for (const dirent of dirents) {
+      try {
+        const fullPath = join(dirPath, dirent.name);
+        
+        if (dirent.isDirectory()) {
+          // For directories, check if they have children to set isExpandable
+          let isExpandable = true;
+          try {
+            const children = await readdir(fullPath);
+            isExpandable = children.length > 0;
+          } catch (err) {
+            // If we can't read the directory, assume it's expandable
+            // This could happen due to permission issues
+            isExpandable = true;
+          }
+          
+          nodes.push({
+            name: dirent.name,
+            path: fullPath,
+            type: 'directory',
+            isExpandable
+          });
+        } else if (dirent.isFile()) {
+          const stats = await lstat(fullPath);
+          nodes.push({
+            name: dirent.name,
+            path: fullPath,
+            type: 'file',
+            size: stats.size,
+            modified: stats.mtime.toISOString()
+          });
+        }
+      } catch (err) {
+        console.warn(`[FileSystem] Failed to process ${dirent.name}:`, err);
+        // Skip this entry if we can't process it
+      }
+    }
+    
+    // Sort items: directories first, then files, both alphabetically
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    
+    console.log('[FileSystem] getDirectoryChildren completed with', nodes.length, 'items');
+    return nodes;
+    
+  } catch (err) {
+    console.error('[FileSystem] Failed to read directory:', err);
+    throw err;
+  }
 }
 
 /**
@@ -321,11 +406,22 @@ class FileSystemWatcher {
     this.stopWatching(projectPath);
 
     try {
+      // Define ignored paths to prevent EMFILE errors and improve performance
+      const ignoredPaths = [
+        /(^|[\/\\])\../, // Ignore all dot-prefixed files and directories (.git, .vscode, etc.)
+        /node_modules/,
+        /dist/,
+        /build/,
+        /out/,
+        /coverage/,
+      ];
+
       // Create chokidar watcher with optimized options
       const watcher = chokidar.watch(projectPath, {
         persistent: true,
         ignoreInitial: true, // Don't emit events for existing files on startup
         followSymlinks: false,
+        ignored: ignoredPaths, // Ignore common large directories to prevent EMFILE errors
         depth: 10, // Limit recursion depth
         awaitWriteFinish: {
           stabilityThreshold: 300, // Wait for file to be stable for 300ms
@@ -486,6 +582,14 @@ export function setupFileSystemHandlers(ipcMain: IpcMain): void {
     'read-directory',
     readDirectoryContents,
     { requiresValidation: true, timeout: 10000 }
+  );
+
+  // Optimized incremental loading endpoint
+  registerHandler(
+    ipcMain,
+    FS_CHANNELS.GET_DIRECTORY_CHILDREN,
+    getDirectoryChildren,
+    { requiresValidation: true, timeout: 5000 }
   );
 
   // System prompt management

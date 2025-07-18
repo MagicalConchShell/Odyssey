@@ -18,6 +18,11 @@ export const IPC_CHANNELS = {
   TERMINAL_EXIT: 'terminal:exit',
 } as const
 
+// File System Channel Names for optimized file tree operations
+export const FS_CHANNELS = {
+  GET_DIRECTORY_CHILDREN: 'fs:get-directory-children',
+} as const
+
 // Helper function to get channel name for terminal data event
 export function getTerminalDataChannel(terminalId: string): string {
   return `${IPC_CHANNELS.TERMINAL_DATA}:${terminalId}`

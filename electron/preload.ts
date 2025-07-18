@@ -13,6 +13,7 @@ import {
   Session,
   FileResponse,
   ClaudeMdFile,
+  FileNode,
   McpServer,
   McpResponse,
   UsageEntry,
@@ -25,6 +26,7 @@ import {
   ProjectUpdateRequest,
   ClaudeProjectImportCandidate
 } from './handlers/types';
+import { FS_CHANNELS } from './ipc-channels';
 
 // Define the API to be exposed to the renderer process
 export interface IElectronAPI {
@@ -60,6 +62,7 @@ export interface IElectronAPI {
     readFile: (filePath: string) => Promise<FileResponse>;
     writeFile: (filePath: string, content: string) => Promise<FileResponse>;
     readDirectory: (dirPath: string) => Promise<ApiResponse<any[]>>;
+    getDirectoryChildren: (dirPath: string) => Promise<ApiResponse<FileNode[]>>;
     getSystemPrompt: () => Promise<FileResponse>;
     saveSystemPrompt: (content: string) => Promise<FileResponse>;
     findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
@@ -177,6 +180,7 @@ const electronAPI: IElectronAPI = {
     readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
     writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
     readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
+    getDirectoryChildren: (dirPath) => ipcRenderer.invoke(FS_CHANNELS.GET_DIRECTORY_CHILDREN, dirPath),
     getSystemPrompt: () => ipcRenderer.invoke('get-system-prompt'),
     saveSystemPrompt: (content) => ipcRenderer.invoke('save-system-prompt', content),
     findClaudeMdFiles: (directory) => ipcRenderer.invoke('find-claude-md-files', directory),
