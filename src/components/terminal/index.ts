@@ -6,6 +6,10 @@ export { TerminalTabs } from './TerminalTabs';
 export { TerminalSearch } from './TerminalSearch';
 export { TerminalWelcome } from './TerminalWelcome';
 
-// Hooks
-export { useTerminalStore } from './hooks/useTerminalStore';
-export { useSimpleTerminalPersistence } from './hooks/useSimpleTerminalPersistence';
+// Re-export hooks from the unified store
+export { 
+  useTerminals, 
+  useActiveTerminal, 
+  useHasTerminals,
+  useTerminalInstances 
+} from '@/store';

@@ -31,6 +31,13 @@ export type {
   FileSystemChangeEvent
 } from '../../electron/handlers/types';
 
+// Import workspace state types
+export type {
+  WorkspaceState,
+  ProjectWorkspaceMeta,
+  WorkspaceStateConfig
+} from '../../electron/types/workspace-state';
+
 // Additional frontend-specific types
 export interface ClaudeSettings {
   includeCoAuthoredBy?: boolean;
@@ -176,6 +183,19 @@ declare global {
         // Legacy support
         getProjectSessions: (projectId: string) => Promise<Session[]>;
         getProjectStats: (projectPath: string) => Promise<ProjectStats>;
+      };
+
+      // Workspace state handlers
+      workspaceState: {
+        save: (projectPath: string, state: WorkspaceState) => Promise<ApiResponse<void>>;
+        load: (projectPath: string) => Promise<ApiResponse<WorkspaceState | null>>;
+        clear: (projectPath: string) => Promise<ApiResponse<void>>;
+        has: (projectPath: string) => Promise<ApiResponse<boolean>>;
+        listProjects: () => Promise<ApiResponse<string[]>>;
+        cleanupOrphaned: () => Promise<ApiResponse<number>>;
+        getProjectMeta: (projectPath: string) => Promise<ApiResponse<ProjectWorkspaceMeta | null>>;
+        createEmpty: () => Promise<ApiResponse<WorkspaceState>>;
+        initialize: (config?: WorkspaceStateConfig) => Promise<ApiResponse<void>>;
       };
     };
   }

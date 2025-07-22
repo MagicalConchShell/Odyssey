@@ -15,8 +15,8 @@ export function buildFileTree(files: FileRestoreInfo[]): FileTreeItem[] {
     if (!a.isDirectory && b.isDirectory) return 1
     
     // Then sort by path depth (shallow first)
-    const aDepth = a.path.split('/').length
-    const bDepth = b.path.split('/').length
+    const aDepth = a.path ? a.path.split('/').length : 0
+    const bDepth = b.path ? b.path.split('/').length : 0
     if (aDepth !== bDepth) return aDepth - bDepth
     
     // Finally sort alphabetically
@@ -25,6 +25,7 @@ export function buildFileTree(files: FileRestoreInfo[]): FileTreeItem[] {
   
   // Process each file
   for (const file of sortedFiles) {
+    if (!file.path) continue
     const pathParts = file.path.split('/').filter(Boolean)
     
     // Create the file tree item
@@ -71,6 +72,7 @@ function createMissingDirectories(
   pathMap: Map<string, FileTreeItem>,
   tree: FileTreeItem[]
 ): FileTreeItem {
+  if (!path) return tree[0] || { path: '', isDirectory: true, children: [] }
   const pathParts = path.split('/').filter(Boolean)
   let currentPath = ''
   let currentParent: FileTreeItem[] = tree
@@ -109,8 +111,8 @@ function sortTreeRecursively(items: FileTreeItem[]): void {
     if (!a.isDirectory && b.isDirectory) return 1
     
     // Then alphabetically by name
-    const aName = a.path.split('/').pop() || ''
-    const bName = b.path.split('/').pop() || ''
+    const aName = a.path ? a.path.split('/').pop() || '' : ''
+    const bName = b.path ? b.path.split('/').pop() || '' : ''
     return aName.localeCompare(bName)
   })
   
@@ -130,6 +132,7 @@ export function buildFileTreeFromPaths(files: FileRestoreInfo[]): FileTreeItem[]
   const pathMap = new Map<string, FileTreeItem>()
   
   for (const file of files) {
+    if (!file.path) continue
     const pathParts = file.path.split('/').filter(Boolean)
     
     // Create all parent directories if they don't exist

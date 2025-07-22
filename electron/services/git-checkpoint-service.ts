@@ -1,4 +1,5 @@
 import {promises as fs} from 'fs';
+import { FileSystemService } from './file-system-service';
 import {join, dirname, resolve} from 'path';
 import {homedir} from 'os';
 import {createHash} from 'crypto';
@@ -1009,7 +1010,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
   private async updateRef(projectHash: string, ref: string, commitHash: string): Promise<void> {
     const refPath = this.getRefPath(projectHash, ref);
     await fs.mkdir(dirname(refPath), {recursive: true});
-    await this.atomicWrite(refPath, commitHash);
+    await FileSystemService.atomicWrite(refPath, commitHash);
   }
 
   /**
@@ -1089,10 +1090,10 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
     const headPath = this.getRefPath(projectHash, 'HEAD');
     if (ref.startsWith('refs/')) {
       // Symbolic ref (branch)
-      await this.atomicWrite(headPath, `ref: ${ref}`);
+      await FileSystemService.atomicWrite(headPath, `ref: ${ref}`);
     } else {
       // Detached HEAD (commit hash)
-      await this.atomicWrite(headPath, ref);
+      await FileSystemService.atomicWrite(headPath, ref);
     }
   }
 
@@ -1280,25 +1281,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
     }
   }
 
-  /**
-   * Atomic file write
-   */
-  private async atomicWrite(filePath: string, content: string | Buffer): Promise<void> {
-    const tempPath = `${filePath}.tmp.${Date.now()}`;
-
-    try {
-      await fs.writeFile(tempPath, content);
-      await fs.rename(tempPath, filePath);
-    } catch (error) {
-      // Clean up temp file
-      try {
-        await fs.unlink(tempPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw error;
-    }
-  }
+  
 }
 
 /**

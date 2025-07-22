@@ -1,7 +1,7 @@
 /**
- * IPC Channel Definitions for Terminal Communication
+ * IPC Channel Definitions for Application Communication
  * 
- * This file defines the contract between frontend and backend for terminal operations.
+ * This file defines the contract between frontend and backend for various operations.
  * Based on the SOTA architecture from terminal_architecture_v1.md
  */
 
@@ -21,6 +21,24 @@ export const IPC_CHANNELS = {
 // File System Channel Names for optimized file tree operations
 export const FS_CHANNELS = {
   GET_DIRECTORY_CHILDREN: 'fs:get-directory-children',
+} as const
+
+// Workspace State Channel Names for terminal state persistence
+export const WORKSPACE_STATE_CHANNELS = {
+  // Core state operations
+  SAVE: 'workspace-state:save',
+  LOAD: 'workspace-state:load',
+  CLEAR: 'workspace-state:clear',
+  HAS: 'workspace-state:has',
+  
+  // Project management
+  LIST_PROJECTS: 'workspace-state:list-projects',
+  CLEANUP_ORPHANED: 'workspace-state:cleanup-orphaned',
+  GET_PROJECT_META: 'workspace-state:get-project-meta',
+  
+  // Utility operations
+  CREATE_EMPTY: 'workspace-state:create-empty',
+  INITIALIZE: 'workspace-state:initialize',
 } as const
 
 // Helper function to get channel name for terminal data event

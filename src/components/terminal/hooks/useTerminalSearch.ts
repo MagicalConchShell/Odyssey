@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from 'react'
-import { useTerminalStore } from './useTerminalStore'
+import { useTerminalInstances } from '@/store'
 import { terminalLogger } from '@/utils/logger'
 
 export interface SearchOptions {
@@ -33,7 +33,7 @@ export interface TerminalSearchActions {
 export interface TerminalSearchHook extends TerminalSearchState, TerminalSearchActions {}
 
 export function useTerminalSearch(terminalId: string): TerminalSearchHook {
-  const { getTerminalInstance } = useTerminalStore()
+  const { getTerminalInstance } = useTerminalInstances()
   
   // Search state
   const [isSearchVisible, setIsSearchVisible] = useState(false)

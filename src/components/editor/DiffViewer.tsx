@@ -69,6 +69,7 @@ const buildDiffTree = (diffs: FileDiff[]): DiffTreeNode[] => {
 
   // Create directory nodes first
   diffs.forEach(diff => {
+    if (!diff.path) return
     const pathParts = diff.path.split('/')
     let currentPath = ''
     
@@ -145,7 +146,7 @@ const DiffTreeNode: React.FC<DiffTreeNodeProps> = ({
   }
   
   const hasChildren = node.children && node.children.length > 0
-  const fileName = node.path.split('/').pop() || node.path
+  const fileName = node.path ? node.path.split('/').pop() || node.path : 'Unknown'
   
   return (
     <div>

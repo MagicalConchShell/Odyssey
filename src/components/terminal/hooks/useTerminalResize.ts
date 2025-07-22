@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useCallback, RefObject } from 'react'
-import { useTerminalStore } from './useTerminalStore'
+import { useTerminalInstances, useTerminals } from '@/store'
 import { terminalLogger } from '@/utils/logger'
 
 export interface TerminalResizeActions {
@@ -19,7 +19,8 @@ export function useTerminalResize(
   terminalId: string,
   terminalRef: RefObject<HTMLDivElement>
 ): TerminalResizeHook {
-  const { getTerminalInstance, resizeTerminal } = useTerminalStore()
+  const { getTerminalInstance } = useTerminalInstances()
+  const { resizeTerminal } = useTerminals()
 
   // Handle resize with debouncing
   const handleResize = useCallback(() => {
@@ -50,7 +51,9 @@ export function useTerminalResize(
     } catch (error) {
       terminalLogger.error(`Resize error for terminal`, { terminalId, error })
     }
-  }, [terminalId, terminalRef, resizeTerminal, getTerminalInstance])
+    // ESLint disable: resizeTerminal and getTerminalInstance are stable from memoized hooks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalId, terminalRef])
 
   // Handle window resize and container changes with ResizeObserver
   useEffect(() => {

@@ -4,7 +4,7 @@ import { Terminal } from 'lucide-react'
 import clsx from 'clsx'
 
 // Types
-import type { Project } from '../project/lib/projectState'
+import type { Project } from '@/store'
 
 interface TerminalWelcomeProps {
   project?: Project

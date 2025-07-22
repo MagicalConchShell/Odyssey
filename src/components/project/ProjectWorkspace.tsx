@@ -1,57 +1,38 @@
-import React, {useEffect} from 'react'
+import React from 'react'
 import clsx from 'clsx'
 
 // Import our new components
 import {ProjectInfoSidebar} from './ProjectInfoSidebar'
-import {TerminalContainer} from '../terminal/TerminalContainer'
+import {TerminalContainer} from '@/components/terminal'
 import {ProjectHeader} from './ProjectHeader'
 
-// Import project state management
+// Import unified state management
 import {
   useProject,
   useCheckpoints,
   useUI,
   useTerminalMode,
   type Project
-} from './lib/projectState'
+} from '@/store'
 
 interface ProjectWorkspaceProps {
-  project?: Project
-  initialProjectPath?: string
   onProjectSelect?: (project: Project) => void
   onNewProject?: () => void
   className?: string
 }
 
 export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
-                                                                    project,
-                                                                    initialProjectPath = '',
                                                                     onProjectSelect,
                                                                     onNewProject,
                                                                     className,
                                                                   }) => {
-  // Use project state management hooks
-  const {currentProject, projectPath, setProject, setProjectPath} = useProject()
+  // Use project state management hooks - no longer need to sync with props
+  const {currentProject, projectPath} = useProject()
   const {selectedCheckpoint, setSelectedCheckpoint} = useCheckpoints()
   const {sidebarTab, setSidebarTab} = useUI()
   const {terminalMode: _mode} = useTerminalMode()
 
-  // Local state
-
-  // Initialize project state
-  useEffect(() => {
-    if (project) {
-      console.log('[ProjectWorkspace] Setting project from prop:', project.path)
-      setProject(project)
-    } else if (initialProjectPath && initialProjectPath.trim() !== '') {
-      // Validate the project path before setting
-      const normalizedPath = initialProjectPath.trim()
-      if (normalizedPath !== projectPath) {
-        console.log('[ProjectWorkspace] Setting project path:', { from: projectPath, to: normalizedPath })
-        setProjectPath(normalizedPath)
-      }
-    }
-  }, [project, initialProjectPath, setProject, setProjectPath, projectPath])
+  // No more useEffect for syncing props to state - state is managed entirely by store
 
   const handleCheckpointRestore = async (commitHash: string) => {
     try {
@@ -75,15 +56,8 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         // Force refresh of timeline by switching to timeline tab and triggering state update
         setSidebarTab('timeline')
 
-        // Create a small delay to ensure the timeline component is rendered
-        // then trigger a refresh by updating the key of the component
-        setTimeout(() => {
-          // Force re-render of the ProjectInfoSidebar which will refresh the timeline
-          if (currentProject) {
-            const updatedProject = {...currentProject, updated_at: Date.now()}
-            setProject(updatedProject)
-          }
-        }, 100)
+        // Timeline will automatically refresh through ProjectInfoSidebar
+        // No need to update project state as it causes infinite loops
       } else {
         console.error('Failed to create checkpoint:', result.error)
       }
@@ -113,8 +87,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       return
     }
     
-    console.log('[ProjectWorkspace] Project selected:', { id: newProject.id, path: newProject.path })
-    setProject(newProject)
+    // Let parent handle the project selection - it will call store methods
     if (onProjectSelect) {
       onProjectSelect(newProject)
     }
@@ -145,7 +118,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       <div className="w-full flex-1 flex">
         {/* Left Sidebar - Project Info & Context */}
         <ProjectInfoSidebar
-          key={`project-${currentProject?.id || 'none'}-${currentProject?.updated_at || 0}`}
+          key={`project-${currentProject?.id || 'none'}`}
           project={currentProject || undefined}
           projectPath={projectPath}
           selectedCheckpoint={selectedCheckpoint}

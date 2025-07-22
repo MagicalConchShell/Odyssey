@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { type Project } from './lib/projectState'
+import { type Project } from '@/store'
 
 interface ProjectHeaderProps {
   currentProject?: Project
@@ -82,12 +82,14 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   const getProjectDisplayName = (project: Project) => {
     if (project.name) return project.name
     // Extract folder name from path
+    if (!project.path || typeof project.path !== 'string') return 'Unknown Project'
     const parts = project.path.split(/[/\\]/)
     return parts[parts.length - 1] || project.path
   }
 
   const formatProjectPath = (path: string) => {
     // Shorten long paths for display
+    if (!path || typeof path !== 'string') return 'Unknown Path'
     const maxLength = 60
     if (path.length <= maxLength) return path
     

@@ -7,13 +7,13 @@ import { TerminalWelcome } from './TerminalWelcome'
 import { TerminalTabs } from './TerminalTabs'
 import { Terminal } from './Terminal'
 
-// Import simplified state management
-import { useTerminalStore, useActiveTerminal, useHasTerminals } from './hooks/useTerminalStore'
-import { useTerminalMode } from '../project/lib/projectState'
-import { useSimpleTerminalPersistence } from './hooks/useSimpleTerminalPersistence'
-
-// Types
-import type { Project } from '../project/lib/projectState'
+// Import unified state management
+import { 
+  useTerminals, 
+  useActiveTerminal, 
+  useTerminalMode,
+  type Project 
+} from '@/store'
 
 interface TerminalContainerProps {
   projectPath: string
@@ -26,66 +26,38 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   project,
   className
 }) => {
-  // Terminal state from simplified Zustand store
-  const { terminals, activeTerminalId, createTerminal, clearAll } = useTerminalStore()
+  // Terminal state from unified store
+  const { terminals, activeTerminalId, createTerminal } = useTerminals()
   const activeTerminal = useActiveTerminal()
-  const hasTerminals = useHasTerminals()
   
-  // Terminal mode from simplified project state
-  const { terminalMode, setTerminalMode } = useTerminalMode()
+  // Terminal mode from unified store
+  const { terminalMode } = useTerminalMode()
   
-  // Simplified session persistence
-  const { cleanup, isRestoring } = useSimpleTerminalPersistence({
-    projectPath,
-    autoSave: true,
-    autoRestore: true,
-    saveDebounceMs: 1000
-  })
+  // No need for separate persistence hook - it's all handled in the unified store
 
   // Handle AI model selection from welcome screen
   const handleModelSelect = useCallback(async (model: 'claude-code' | 'gemini' | 'terminal') => {
     console.log('Creating terminal:', { model, projectPath })
     
     try {
-      // Create terminal using Zustand store
+      // Create terminal using unified store
       await createTerminal({
         type: model,
         cwd: projectPath,
         makeActive: true
       })
       
-      // Switch to active mode
-      setTerminalMode('active')
+      // Terminal mode is automatically set to 'active' in the store
     } catch (error) {
       console.error('Failed to create terminal:', error)
     }
-  }, [createTerminal, projectPath, setTerminalMode])
+  }, [createTerminal, projectPath])
 
-  // Auto-switch to welcome mode when no terminals
-  useEffect(() => {
-    if (!hasTerminals && terminalMode === 'active') {
-      setTerminalMode('welcome')
-    }
-  }, [hasTerminals, terminalMode, setTerminalMode])
+  // Auto-switch to welcome mode when no terminals (handled automatically in store)
+  // No need for manual useEffect - the store handles this automatically
 
-  // Cleanup terminals when project changes
-  useEffect(() => {
-    return () => {
-      // Clean up persistence
-      cleanup()
-      // Clear all terminals
-      clearAll()
-    }
-  }, [projectPath, clearAll, cleanup])
-
-  // Global cleanup on component unmount
-  useEffect(() => {
-    return () => {
-      console.log('[TerminalContainer] Component unmounting, cleaning up all terminals')
-      cleanup()
-      clearAll()
-    }
-  }, [cleanup, clearAll])
+  // Cleanup terminals when project changes - handled by the unified store
+  // No need for manual cleanup - project switching is atomic in the store
 
   // Global keyboard shortcuts for performance monitoring
   useEffect(() => {
@@ -123,15 +95,7 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
 
   return (
     <div className={clsx("flex flex-col h-full", className)}>
-      {/* Optional restoration indicator - only shows during background restoration */}
-      {projectPath && isRestoring && (
-        <div className="absolute top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b">
-          <div className="flex items-center justify-center h-8 text-sm text-muted-foreground">
-            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
-            Restoring terminal sessions in background...
-          </div>
-        </div>
-      )}
+      {/* Terminal restoration is handled seamlessly in the unified store */}
       
       <AnimatePresence mode="wait">
         {terminalMode === 'welcome' ? (
@@ -167,15 +131,18 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
             
             {/* All terminals - show/hide based on active state */}
             <div className="flex-1 relative min-h-0">
-              {terminals.map((terminal) => (
-                <Terminal
-                  key={terminal.id}
-                  terminalId={terminal.id}
-                  className={`absolute inset-0 w-full h-full ${
-                    terminal.id === activeTerminalId ? 'block' : 'hidden'
-                  }`}
-                />
-              ))}
+              {terminals.map((terminal) => {
+                console.log('Rendering terminal:', terminal);
+                return (
+                  <Terminal
+                    key={terminal.id}
+                    terminalId={terminal.id}
+                    className={`absolute inset-0 w-full h-full ${
+                      terminal.id === activeTerminalId ? 'block' : 'hidden'
+                    }`}
+                  />
+                )
+              })}
               {!activeTerminal && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="text-center space-y-2">

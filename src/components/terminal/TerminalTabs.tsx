@@ -17,7 +17,7 @@ import {
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip'
 
 // Import types and hooks - using simplified Zustand store
-import {useTerminalStore} from './hooks/useTerminalStore'
+import {useTerminals, type Terminal} from '@/store'
 import {useTheme} from '@/components/theme-provider'
 
 // Import individual tab component
@@ -41,7 +41,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
     setActiveTerminal,
     removeTerminal,
     setTerminalTitle
-  } = useTerminalStore()
+  } = useTerminals()
 
   const [showNewTabMenu, setShowNewTabMenu] = useState(false)
 
@@ -112,7 +112,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
       >
         {/* Tab list */}
         <div className="flex-1 flex items-center overflow-x-auto scrollbar-thin">
-          {terminals.map((terminal) => (
+          {terminals.map((terminal: Terminal) => (
             <TerminalTabComponent
               key={terminal.id}
               tab={terminal}

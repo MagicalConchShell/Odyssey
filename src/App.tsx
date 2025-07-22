@@ -5,7 +5,6 @@ import {ClaudeMdFile} from './types/electron'
 // Import components
 import {ProjectWorkspace} from '@/components/project'
 import {Project} from '@/components/project'
-import {ProjectStateProvider} from '@/components/project'
 import {Settings} from '@/components/Settings'
 import {UsageDashboard} from '@/components/UsageDashboard'
 import {MCPManager} from '@/components/mcp'
@@ -16,6 +15,7 @@ import {MarkdownEditor} from '@/components/editor'
 import {ClaudeFileEditor} from '@/components/editor'
 import {GlobalCommandOverlay} from '@/components/command'
 import {Toaster} from '@/components/ui/sonner'
+import {initializeStore, useProject} from '@/store'
 
 type View =
   "welcome"
@@ -36,12 +36,16 @@ function App() {
   // Global command overlay state
   const [isCommandOverlayOpen, setIsCommandOverlayOpen] = useState(false)
 
-  // Project workspace state
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
-  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+  // Use store for project state
+  const { setProject, setProjectPath } = useProject()
 
   // CLAUDE.md editor state
   const [selectedClaudeMdFile] = useState<ClaudeMdFile | null>(null)
+
+  // Initialize the unified store
+  useEffect(() => {
+    initializeStore()
+  }, [])
 
   // Load platform information
   useEffect(() => {
@@ -117,16 +121,14 @@ function App() {
 
   // Move useCallback hooks to component top level to fix React Error #310
   const handleSelectProject = useCallback((projectPath: string) => {
-    setSelectedProject(null)
-    setSelectedProjectPath(projectPath)
+    setProjectPath(projectPath)
     setView("project-workspace")
-  }, [])
+  }, [setProjectPath])
 
   const handleProjectSelect = useCallback((project: Project) => {
-    setSelectedProject(project)
-    setSelectedProjectPath(project.path)
+    setProject(project)
     setView("project-workspace")
-  }, [])
+  }, [setProject])
 
   const handleNewProject = useCallback(() => {
     setView("welcome")
@@ -209,16 +211,15 @@ function App() {
   )
 
 
-  const renderProjectWorkspaceView = () => (
-    <ProjectStateProvider>
+  const renderProjectWorkspaceView = () => {
+    console.log('[App] renderProjectWorkspaceView called')
+    return (
       <ProjectWorkspace
-        project={selectedProject || undefined}
-        initialProjectPath={selectedProjectPath}
         onProjectSelect={handleProjectSelect}
         onNewProject={handleNewProject}
       />
-    </ProjectStateProvider>
-  )
+    )
+  }
 
   const renderSettingsView = () => (
     <Settings onBack={() => setView("welcome")}/>

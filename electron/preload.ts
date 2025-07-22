@@ -26,7 +26,12 @@ import {
   ProjectUpdateRequest,
   ClaudeProjectImportCandidate
 } from './handlers/types';
-import { FS_CHANNELS } from './ipc-channels';
+import { FS_CHANNELS, WORKSPACE_STATE_CHANNELS } from './ipc-channels';
+import type {
+  WorkspaceState,
+  ProjectWorkspaceMeta,
+  WorkspaceStateConfig
+} from './types/workspace-state';
 
 // Define the API to be exposed to the renderer process
 export interface IElectronAPI {
@@ -145,6 +150,19 @@ export interface IElectronAPI {
     getProjectSessions: (projectId: string) => Promise<Session[]>;
     getProjectStats: (projectPath: string) => Promise<ProjectStats>;
   };
+
+  // Workspace state handlers
+  workspaceState: {
+    save: (projectPath: string, state: WorkspaceState) => Promise<ApiResponse<void>>;
+    load: (projectPath: string) => Promise<ApiResponse<WorkspaceState | null>>;
+    clear: (projectPath: string) => Promise<ApiResponse<void>>;
+    has: (projectPath: string) => Promise<ApiResponse<boolean>>;
+    listProjects: () => Promise<ApiResponse<string[]>>;
+    cleanupOrphaned: () => Promise<ApiResponse<number>>;
+    getProjectMeta: (projectPath: string) => Promise<ApiResponse<ProjectWorkspaceMeta | null>>;
+    createEmpty: () => Promise<ApiResponse<WorkspaceState>>;
+    initialize: (config?: WorkspaceStateConfig) => Promise<ApiResponse<void>>;
+  };
 }
 
 const electronAPI: IElectronAPI = {
@@ -262,6 +280,19 @@ const electronAPI: IElectronAPI = {
     // Legacy support
     getProjectSessions: (projectId) => ipcRenderer.invoke('get-project-sessions', projectId),
     getProjectStats: (projectPath) => ipcRenderer.invoke('get-project-stats', projectPath),
+  },
+
+  // Workspace state handlers
+  workspaceState: {
+    save: (projectPath, state) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.SAVE, projectPath, state),
+    load: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.LOAD, projectPath),
+    clear: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CLEAR, projectPath),
+    has: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.HAS, projectPath),
+    listProjects: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.LIST_PROJECTS),
+    cleanupOrphaned: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CLEANUP_ORPHANED),
+    getProjectMeta: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.GET_PROJECT_META, projectPath),
+    createEmpty: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CREATE_EMPTY),
+    initialize: (config) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.INITIALIZE, config),
   },
 };
 

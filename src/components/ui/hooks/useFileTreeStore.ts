@@ -164,14 +164,22 @@ export const useFileTreeStore = create<FileTreeStore>()(
           return { expandedPaths: newExpandedPaths }
         }
 
+        // Only update if state actually changed
+        if (node.isExpanded === !node.isExpanded) return state
+
+        const newExpandedPaths = new Set(state.expandedPaths)
+        if (node.isExpanded) {
+          newExpandedPaths.delete(path)
+        } else {
+          newExpandedPaths.add(path)
+        }
+
         return {
           nodes: {
             ...state.nodes,
             [path]: { ...node, isExpanded: !node.isExpanded }
           },
-          expandedPaths: node.isExpanded 
-            ? new Set([...state.expandedPaths].filter(p => p !== path))
-            : new Set([...state.expandedPaths, path])
+          expandedPaths: newExpandedPaths
         }
       })
     },
@@ -190,14 +198,22 @@ export const useFileTreeStore = create<FileTreeStore>()(
           return { expandedPaths: newExpandedPaths }
         }
 
+        // Only update if state actually changed
+        if (node.isExpanded === expanded) return state
+
+        const newExpandedPaths = new Set(state.expandedPaths)
+        if (expanded) {
+          newExpandedPaths.add(path)
+        } else {
+          newExpandedPaths.delete(path)
+        }
+
         return {
           nodes: {
             ...state.nodes,
             [path]: { ...node, isExpanded: expanded }
           },
-          expandedPaths: expanded 
-            ? new Set([...state.expandedPaths, path])
-            : new Set([...state.expandedPaths].filter(p => p !== path))
+          expandedPaths: newExpandedPaths
         }
       })
     },
@@ -227,19 +243,22 @@ export const useFileTreeStore = create<FileTreeStore>()(
     expandAll: (allPaths: string[]) => {
       set((state) => {
         const newNodes = { ...state.nodes }
-        const newExpandedPaths = new Set([...state.expandedPaths, ...allPaths])
+        const newExpandedPaths = new Set(state.expandedPaths)
+        let hasChanges = false
 
         // Update node states
         allPaths.forEach(path => {
-          if (newNodes[path]) {
+          if (newNodes[path] && !newNodes[path].isExpanded) {
             newNodes[path] = { ...newNodes[path], isExpanded: true }
+            newExpandedPaths.add(path)
+            hasChanges = true
           }
         })
 
-        return {
+        return hasChanges ? {
           nodes: newNodes,
           expandedPaths: newExpandedPaths
-        }
+        } : state
       })
     },
 

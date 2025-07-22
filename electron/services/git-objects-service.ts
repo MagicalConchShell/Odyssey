@@ -1,5 +1,6 @@
+import { FileSystemService } from './file-system-service';
 import { promises as fs } from 'fs';
-import { join, dirname, relative } from 'path';
+import { join, relative } from 'path';
 import { createHash } from 'crypto';
 import { gzip, gunzip } from 'zlib';
 import { promisify } from 'util';
@@ -124,7 +125,7 @@ export class GitObjectStore {
     const compressed = await gzipAsync(fullContent, { level: this.compressionLevel });
     
     // Atomic write
-    await this.atomicWrite(objectPath, compressed);
+    await FileSystemService.atomicWrite(objectPath, compressed);
     
     // Clear cache because new object was added
     this.invalidateCache();
@@ -165,7 +166,7 @@ export class GitObjectStore {
     const compressed = await gzipAsync(fullContent, { level: this.compressionLevel });
     
     // Atomic write
-    await this.atomicWrite(objectPath, compressed);
+    await FileSystemService.atomicWrite(objectPath, compressed);
     
     // Clear cache because new object was added
     this.invalidateCache();
@@ -197,7 +198,7 @@ export class GitObjectStore {
     const compressed = await gzipAsync(fullContent, { level: this.compressionLevel });
     
     // Atomic write
-    await this.atomicWrite(objectPath, compressed);
+    await FileSystemService.atomicWrite(objectPath, compressed);
     
     // Clear cache because a new object was added
     this.invalidateCache();
@@ -536,28 +537,7 @@ export class GitObjectStore {
     return commit;
   }
 
-  /**
-   * Atomic file write
-   */
-  private async atomicWrite(filePath: string, content: Buffer): Promise<void> {
-    const dir = dirname(filePath);
-    await fs.mkdir(dir, { recursive: true });
-    
-    const tempPath = `${filePath}.tmp.${Date.now()}`;
-    
-    try {
-      await fs.writeFile(tempPath, content);
-      await fs.rename(tempPath, filePath);
-    } catch (error) {
-      // Clean up temporary file
-      try {
-        await fs.unlink(tempPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw error;
-    }
-  }
+  
 }
 
 /**

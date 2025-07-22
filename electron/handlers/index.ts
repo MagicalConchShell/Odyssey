@@ -8,6 +8,7 @@ import { setupMcpHandlers } from './mcp-handler.js';
 import { setupGitCheckpointHandlers } from './git-checkpoint-handler.js';
 import { setupSystemHandlers } from './system-handler.js';
 import { setupTerminalHandlers } from './terminal-handler.js';
+import { setupWorkspaceStateHandlers } from './workspace-state-handler.js';
 
 /**
  * Register all IPC handlers in the correct order
@@ -24,6 +25,7 @@ export function setupAllHandlers(ipcMain: IpcMain): void {
   setupUsageAnalyticsHandlers(ipcMain);
   setupMcpHandlers(ipcMain);
   setupGitCheckpointHandlers(ipcMain);
+  setupWorkspaceStateHandlers(ipcMain);
   setupTerminalHandlers(ipcMain);
   
   console.log('✅ All IPC handlers registered successfully');
@@ -49,7 +51,8 @@ export {
   setupMcpHandlers,
   setupGitCheckpointHandlers,
   setupSystemHandlers,
-  setupTerminalHandlers
+  setupTerminalHandlers,
+  setupWorkspaceStateHandlers
 };
 
 // Export utility functions from individual modules

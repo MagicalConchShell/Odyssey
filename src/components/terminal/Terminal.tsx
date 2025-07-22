@@ -13,7 +13,7 @@ import {SearchAddon} from '@xterm/addon-search'
 import {WebglAddon} from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import {useTheme} from '@/components/theme-provider'
-import {useTerminalStore} from './hooks/useTerminalStore'
+import {useTerminals, useTerminalInstances} from '@/store'
 import {useTerminalSearch} from './hooks/useTerminalSearch'
 import {useTerminalResize} from './hooks/useTerminalResize'
 import {useTerminalShortcuts} from './hooks/useTerminalShortcuts'
@@ -28,12 +28,8 @@ interface TerminalProps {
 export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const {theme} = useTheme()
-  const {
-    writeToTerminal,
-    resizeTerminal,
-    getTerminalInstance,
-    setTerminalInstance
-  } = useTerminalStore()
+  const { writeToTerminal, resizeTerminal } = useTerminals()
+  const { getTerminalInstance, setTerminalInstance } = useTerminalInstances()
 
   // Use specialized hooks
   const search = useTerminalSearch(terminalId)
@@ -223,7 +219,9 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       }, 100)
     }
 
-  }, [terminalId, getOrCreateXTermInstance, resizeTerminal])
+    // ESLint disable: getOrCreateXTermInstance and resizeTerminal are stable from memoized hooks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalId])
 
   // Handle theme changes
   useEffect(() => {
@@ -237,7 +235,9 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
         }
       }, 10)
     }
-  }, [theme, terminalId, getTerminalInstance])
+    // ESLint disable: getTerminalInstance is stable from memoized hook
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, terminalId])
 
   // Cleanup on unmount - only dispose if terminal is being removed
   useEffect(() => {

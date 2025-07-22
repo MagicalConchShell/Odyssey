@@ -1,4 +1,5 @@
 import { IpcMain, BrowserWindow } from 'electron';
+import { FileSystemService } from '../services/file-system-service';
 import { readdir, readFile, writeFile, mkdir, stat, lstat } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
@@ -23,7 +24,7 @@ async function readFileContent(filePath: string): Promise<string> {
  * Write content to file as UTF-8 string
  */
 async function writeFileContent(filePath: string, content: string): Promise<void> {
-  await writeFile(filePath, content, 'utf8');
+  await FileSystemService.atomicWrite(filePath, content);
 }
 
 

@@ -128,7 +128,7 @@ const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, 
               <Folder className="w-4 h-4 text-blue-500" />
             )
           ) : (() => {
-            const fileName = item.path.split('/').pop() || ''
+            const fileName = item.path ? item.path.split('/').pop() || '' : ''
             const { icon: FileIcon, color } = getFileIcon(fileName)
             return <FileIcon className={cn("w-4 h-4", color)} />
           })()}
@@ -150,7 +150,7 @@ const FileTreeNode = ({ item, level, onItemClick, formatFileSize, showFileInfo, 
         {/* File/folder name */}
         <div className="flex-1 min-w-0">
           <div className="text-xs truncate font-mono">
-            {item.path.split('/').pop()}
+            {item.path ? item.path.split('/').pop() : 'Unknown'}
           </div>
         </div>
         

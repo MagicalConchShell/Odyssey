@@ -28,7 +28,7 @@ import { FileTree } from '@/components/ui/FileTree'
 import { useFileTreeStore, TreeNode } from '@/components/ui/hooks/useFileTreeStore'
 
 // Types
-import type { Project, ProjectSettings } from './lib/projectState'
+import type { Project, ProjectSettings } from '@/store'
 import type { FileSystemChangeEvent } from '@/types/electron'
 import type { FileNode } from '../../../electron/handlers/types'
 
@@ -68,6 +68,15 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   // Timeline ref
   const timelineTreeRef = useRef<GitTimelineTreeRef>(null)
   
+  // Ref to hold the latest loadProjectFiles function
+  const loadProjectFilesRef = useRef<() => Promise<void>>()
+  
+  // Ref to track current projectPath for proper cleanup
+  const projectPathRef = useRef<string>(projectPath)
+  
+  // Refs to track current values for event handler
+  const activeTabRef = useRef<string>(activeTab)
+  
   // File tree store - updated for lazy loading
   const { expandAll, collapseAll, addNode, addChildren, reset: resetFileTree, setNodeLoading } = useFileTreeStore()
 
@@ -102,6 +111,9 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     }, 3000)
   }, [])
 
+  // Ref to track addRecentlyChangedFile function
+  const addRecentlyChangedFileRef = useRef<(filePath: string) => void>(addRecentlyChangedFile)
+
   // File tree expansion handlers - updated for new store structure
   const handleExpandAll = useCallback(() => {
     const { nodes } = useFileTreeStore.getState()
@@ -115,15 +127,32 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
 
   // Convert FileNode to TreeNode format
   const convertFileNodeToTreeNode = useCallback((fileNode: FileNode, parentPath?: string, level: number = 0): TreeNode => {
+    // Validate required fileNode properties
+    if (!fileNode || !fileNode.path || typeof fileNode.path !== 'string') {
+      console.warn('[ProjectInfoSidebar] Invalid FileNode path:', fileNode)
+      return {
+        id: `invalid-${Date.now()}-${Math.random()}`,
+        name: 'Invalid Item',
+        type: 'file',
+        level,
+        parentId: parentPath,
+        isExpanded: false,
+        isLoading: false,
+        isExpandable: false,
+        size: 0,
+        modified: undefined,
+      }
+    }
+
     return {
       id: fileNode.path,
-      name: fileNode.name,
-      type: fileNode.type,
+      name: fileNode.name || fileNode.path.split('/').pop() || 'Unknown',
+      type: fileNode.type || 'file',
       level,
       parentId: parentPath,
       isExpanded: false,
       isLoading: false,
-      isExpandable: fileNode.isExpandable,
+      isExpandable: fileNode.isExpandable || false,
       size: fileNode.size,
       modified: fileNode.modified,
     }
@@ -216,12 +245,24 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     }
   }, [projectPath, resetFileTree, convertFileNodeToTreeNode, addNode])
 
+  // Update the ref whenever loadProjectFiles changes
+  useEffect(() => {
+    loadProjectFilesRef.current = loadProjectFiles
+  }, [loadProjectFiles])
+
   // Load project files when files tab is active
   useEffect(() => {
-    if (activeTab === 'files') {
-      loadProjectFiles()
+    if (activeTab === 'files' && loadProjectFilesRef.current) {
+      loadProjectFilesRef.current()
     }
-  }, [activeTab, projectPath, loadProjectFiles])
+  }, [activeTab])
+
+  // Update refs when values change
+  useEffect(() => {
+    projectPathRef.current = projectPath
+    activeTabRef.current = activeTab
+    addRecentlyChangedFileRef.current = addRecentlyChangedFile
+  }, [projectPath, activeTab, addRecentlyChangedFile])
 
   // Start file system watcher when project path changes
   useEffect(() => {
@@ -236,8 +277,10 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     }
 
     return () => {
-      if (projectPath) {
-        window.electronAPI.fileSystem.stopFileSystemWatcher(projectPath)
+      // Use the ref to get the correct projectPath for cleanup
+      const pathToCleanup = projectPathRef.current
+      if (pathToCleanup) {
+        window.electronAPI.fileSystem.stopFileSystemWatcher(pathToCleanup)
           .catch((error) => {
             console.error('[ProjectInfoSidebar] Failed to stop file system watcher:', error)
           })
@@ -248,39 +291,39 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   // Listen for file system changes
   useEffect(() => {
     const handleFileSystemChange = (_event: any, changeEvent: FileSystemChangeEvent) => {
-      if (changeEvent.projectPath === projectPath) {
+      if (changeEvent.projectPath === projectPathRef.current) {
         console.log('[ProjectInfoSidebar] File system change detected:', changeEvent)
         
         // Add visual feedback for the changed file
-        addRecentlyChangedFile(changeEvent.relativePath)
+        addRecentlyChangedFileRef.current(changeEvent.relativePath)
         
         // Only reload if files tab is active to avoid unnecessary work
-        if (activeTab === 'files') {
+        if (activeTabRef.current === 'files') {
           // Handle incremental updates based on event type
           switch (changeEvent.eventType) {
             case 'add':
             case 'addDir':
               // For now, reload the entire tree to ensure proper parent-child relationships
               // TODO: Implement smart incremental insertion
-              loadProjectFiles()
+              loadProjectFilesRef.current?.()
               break
             
             case 'change':
               // File content changed, we may want to update file metadata (size, modified time)
               // For now, reload to get updated metadata
-              loadProjectFiles()
+              loadProjectFilesRef.current?.()
               break
             
             case 'unlink':
             case 'unlinkDir':
               // File or directory was deleted, reload to remove from tree
               // TODO: Implement smart incremental removal
-              loadProjectFiles()
+              loadProjectFilesRef.current?.()
               break
             
             default:
               // Unknown event type, reload as fallback
-              loadProjectFiles()
+              loadProjectFilesRef.current?.()
               break
           }
         }
@@ -296,7 +339,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
         window.electronAPI.removeListener('file-system-changed', handleFileSystemChange)
       }
     }
-  }, [projectPath, activeTab, loadProjectFiles, addRecentlyChangedFile])
+  }, []) // Empty dependency array - using refs for dynamic values
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -322,7 +365,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
     if (activeTab === 'settings' && project) {
       loadProjectSettings()
     }
-  }, [activeTab, project])
+  }, [activeTab, project?.id]) // Use stable project.id instead of project object
 
 
 
@@ -591,9 +634,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
               {activeTab === 'files' && (
                 <div className="h-full flex flex-col">
                   <div className="flex-1 overflow-auto">
-                    {(() => {
-                      return null;
-                    })()}
                     {loading ? (
                       <div className="flex items-center justify-center h-32">
                         <div className="text-center">
@@ -649,9 +689,6 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                       </div>
                     ) : (
                       <div className="flex items-center justify-center h-32 text-center p-4">
-                        {(() => {
-                          return null;
-                        })()}
                         <div>
                           <FolderOpen className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                           <p className="text-xs text-muted-foreground mb-2">

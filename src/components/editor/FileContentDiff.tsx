@@ -167,7 +167,7 @@ export const FileContentDiff: React.FC<FileContentDiffProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'unified' | 'side-by-side'>('side-by-side')
   
-  const fileName = fileDiff.path.split('/').pop() || fileDiff.path
+  const fileName = fileDiff.path ? fileDiff.path.split('/').pop() || fileDiff.path : 'Unknown'
   const fileExtension = getFileExtension(fileName)
   const language = getLanguageFromExtension(fileExtension)
   
