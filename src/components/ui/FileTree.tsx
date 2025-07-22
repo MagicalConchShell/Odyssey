@@ -199,6 +199,9 @@ const TreeNodeComponent = ({ node, onItemClick, onNodeExpand, formatFileSize, sh
       if (!node.children && onNodeExpand) {
         // First time expanding - load children
         await onNodeExpand(node.id)
+        // After loading, expand the node
+        const { setExpanded } = useFileTreeStore.getState()
+        setExpanded(node.id, true)
       } else {
         // Just toggle expansion state
         const { togglePath } = useFileTreeStore.getState()
