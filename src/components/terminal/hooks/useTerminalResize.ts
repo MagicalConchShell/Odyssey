@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useCallback, RefObject } from 'react'
-import { useTerminalInstances, useTerminals } from '@/store'
+import { useAppStore } from '@/store'
 import { terminalLogger } from '@/utils/logger'
 
 export interface TerminalResizeActions {
@@ -19,8 +19,8 @@ export function useTerminalResize(
   terminalId: string,
   terminalRef: RefObject<HTMLDivElement>
 ): TerminalResizeHook {
-  const { getTerminalInstance } = useTerminalInstances()
-  const { resizeTerminal } = useTerminals()
+  const getTerminalInstance = useAppStore((state) => state.getTerminalInstance)
+  const resizeTerminal = useAppStore((state) => state.resizeTerminal)
 
   // Handle resize with debouncing
   const handleResize = useCallback(() => {

@@ -8,8 +8,6 @@ export { TerminalWelcome } from './TerminalWelcome';
 
 // Re-export hooks from the unified store
 export { 
-  useTerminals, 
   useActiveTerminal, 
-  useHasTerminals,
-  useTerminalInstances 
+  useHasTerminals 
 } from '@/store';

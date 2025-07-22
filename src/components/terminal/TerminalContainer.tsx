@@ -9,9 +9,8 @@ import { Terminal } from './Terminal'
 
 // Import unified state management
 import { 
-  useTerminals, 
+  useAppStore,
   useActiveTerminal, 
-  useTerminalMode,
   type Project 
 } from '@/store'
 
@@ -27,11 +26,13 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   className
 }) => {
   // Terminal state from unified store
-  const { terminals, activeTerminalId, createTerminal } = useTerminals()
+  const terminals = useAppStore((state) => state.terminals)
+  const activeTerminalId = useAppStore((state) => state.activeTerminalId)
+  const createTerminal = useAppStore((state) => state.createTerminal)
   const activeTerminal = useActiveTerminal()
   
   // Terminal mode from unified store
-  const { terminalMode } = useTerminalMode()
+  const terminalMode = useAppStore((state) => state.terminalMode)
   
   // No need for separate persistence hook - it's all handled in the unified store
 

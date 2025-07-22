@@ -7,6 +7,7 @@ import {
 import { CommandPalette } from './command/CommandPalette'
 import { Button } from './ui/button'
 import { toast } from "sonner"
+import { Project } from '@/store'
 
 interface ClaudeProjectImportCandidate {
   name: string
@@ -22,7 +23,7 @@ interface ClaudeProjectImportCandidate {
 }
 
 interface WelcomeScreenProps {
-  onSelectProject: (projectPath: string) => void
+  onSelectProject: (project: Project) => void
   onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
   className?: string
 }
@@ -49,8 +50,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     try {
       const response = await window.electronAPI.projectManagement.openFolder()
       if (response.success && response.data) {
-        // Navigate to the project
-        onSelectProject(response.data.path)
+        // Navigate to the project using the full project object
+        onSelectProject(response.data)
       } else {
         console.warn('Failed to open folder:', response.error)
       }

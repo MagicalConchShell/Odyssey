@@ -13,7 +13,7 @@ import {SearchAddon} from '@xterm/addon-search'
 import {WebglAddon} from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import {useTheme} from '@/components/theme-provider'
-import {useTerminals, useTerminalInstances} from '@/store'
+import {useAppStore} from '@/store'
 import {useTerminalSearch} from './hooks/useTerminalSearch'
 import {useTerminalResize} from './hooks/useTerminalResize'
 import {useTerminalShortcuts} from './hooks/useTerminalShortcuts'
@@ -28,8 +28,10 @@ interface TerminalProps {
 export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const {theme} = useTheme()
-  const { writeToTerminal, resizeTerminal } = useTerminals()
-  const { getTerminalInstance, setTerminalInstance } = useTerminalInstances()
+  const writeToTerminal = useAppStore((state) => state.writeToTerminal)
+  const resizeTerminal = useAppStore((state) => state.resizeTerminal)
+  const getTerminalInstance = useAppStore((state) => state.getTerminalInstance)
+  const setTerminalInstance = useAppStore((state) => state.setTerminalInstance)
 
   // Use specialized hooks
   const search = useTerminalSearch(terminalId)

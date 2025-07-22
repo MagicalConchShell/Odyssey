@@ -15,7 +15,7 @@ import {MarkdownEditor} from '@/components/editor'
 import {ClaudeFileEditor} from '@/components/editor'
 import {GlobalCommandOverlay} from '@/components/command'
 import {Toaster} from '@/components/ui/sonner'
-import {initializeStore, useProject} from '@/store'
+import {useAppStore} from '@/store'
 
 type View =
   "welcome"
@@ -37,15 +37,13 @@ function App() {
   const [isCommandOverlayOpen, setIsCommandOverlayOpen] = useState(false)
 
   // Use store for project state
-  const { setProject, setProjectPath } = useProject()
+  const setProject = useAppStore((state) => state.setProject)
+  const setProjectPath = useAppStore((state) => state.setProjectPath)
 
   // CLAUDE.md editor state
   const [selectedClaudeMdFile] = useState<ClaudeMdFile | null>(null)
 
-  // Initialize the unified store
-  useEffect(() => {
-    initializeStore()
-  }, [])
+  // The persist middleware now handles automatic state initialization
 
   // Load platform information
   useEffect(() => {
@@ -120,10 +118,17 @@ function App() {
   }, [view])
 
   // Move useCallback hooks to component top level to fix React Error #310
-  const handleSelectProject = useCallback((projectPath: string) => {
-    setProjectPath(projectPath)
-    setView("project-workspace")
-  }, [setProjectPath])
+  const handleSelectProject = useCallback(async (project: Project) => {
+    try {
+      await setProject(project)
+      setView("project-workspace")
+    } catch (error) {
+      console.error('Failed to set project:', error)
+      // Fallback to setting just the path if project setting fails
+      setProjectPath(project.path)
+      setView("project-workspace")
+    }
+  }, [setProject, setProjectPath])
 
   const handleProjectSelect = useCallback((project: Project) => {
     setProject(project)
@@ -147,7 +152,7 @@ function App() {
     try {
       const response = await window.electronAPI.projectManagement.openFolder()
       if (response.success && response.data) {
-        handleSelectProject(response.data.path)
+        await handleSelectProject(response.data)
       } else {
         console.warn('Failed to open folder:', response.error)
       }

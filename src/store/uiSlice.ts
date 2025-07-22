@@ -3,14 +3,7 @@ import { TerminalMode } from '@/types/terminal'
 import { ProjectSlice } from './projectSlice'
 import { TerminalSlice } from './terminalSlice'
 
-// Debounce utility for persistence
-let persistenceTimer: NodeJS.Timeout | null = null
-const debouncedPersist = (persistFn: () => void) => {
-  if (persistenceTimer) {
-    clearTimeout(persistenceTimer)
-  }
-  persistenceTimer = setTimeout(persistFn, 100) // 100ms debounce
-}
+// Persistence is now handled automatically by persist middleware
 
 // UI slice state
 export interface UISlice {
@@ -32,21 +25,19 @@ export const createUISlice: StateCreator<
   UISlice
 > = (set, get) => ({
   // Initial state
-  sidebarTab: 'timeline',
+  sidebarTab: 'files',
   sidebarCollapsed: false,
   terminalMode: 'welcome',
 
   // UI actions
   setSidebarTab: (tab) => {
     set({ sidebarTab: tab })
-    // Debounced persistence to prevent rapid updates
-    debouncedPersist(() => get().persistProjectState())
+    // Persistence is now handled automatically by persist middleware
   },
 
   setSidebarCollapsed: (collapsed) => {
     set({ sidebarCollapsed: collapsed })
-    // Debounced persistence to prevent rapid updates
-    debouncedPersist(() => get().persistProjectState())
+    // Persistence is now handled automatically by persist middleware
   },
 
   setTerminalMode: (mode) => {
@@ -54,8 +45,7 @@ export const createUISlice: StateCreator<
     if (currentMode !== mode) {
       console.log('[AppStore] Setting terminal mode:', { from: currentMode, to: mode })
       set({ terminalMode: mode })
-      // Debounced persistence to prevent rapid updates
-      debouncedPersist(() => get().persistProjectState())
+      // Persistence is now handled automatically by persist middleware
     }
   }
 })

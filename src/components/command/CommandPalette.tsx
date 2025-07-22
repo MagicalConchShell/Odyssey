@@ -40,7 +40,7 @@ interface Project {
 
 interface CommandPaletteProps {
   onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
-  onSelectProject: (projectPath: string) => void
+  onSelectProject: (project: Project) => void
   onOpenFolder: () => void
   onImportProjects: () => void
   onRefresh?: (refreshFunction: () => Promise<void>) => void
@@ -105,11 +105,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const handleProjectSelect = useCallback(async (project: Project) => {
     try {
       await window.electronAPI.projectManagement.openProject(project.id)
-      onSelectProject(project.path)
+      onSelectProject(project)
     } catch (err) {
       console.error('Failed to open project:', err)
       // Still navigate even if update fails
-      onSelectProject(project.path)
+      onSelectProject(project)
     }
   }, [onSelectProject])
 

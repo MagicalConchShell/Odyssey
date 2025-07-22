@@ -8,10 +8,7 @@ import {ProjectHeader} from './ProjectHeader'
 
 // Import unified state management
 import {
-  useProject,
-  useCheckpoints,
-  useUI,
-  useTerminalMode,
+  useAppStore,
   type Project
 } from '@/store'
 
@@ -26,11 +23,13 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                                                                     onNewProject,
                                                                     className,
                                                                   }) => {
-  // Use project state management hooks - no longer need to sync with props
-  const {currentProject, projectPath} = useProject()
-  const {selectedCheckpoint, setSelectedCheckpoint} = useCheckpoints()
-  const {sidebarTab, setSidebarTab} = useUI()
-  const {terminalMode: _mode} = useTerminalMode()
+  // Use project state management - no longer need to sync with props
+  const currentProject = useAppStore((state) => state.currentProject)
+  const projectPath = useAppStore((state) => state.projectPath)
+  const selectedCheckpoint = useAppStore((state) => state.selectedCheckpoint)
+  const setSelectedCheckpoint = useAppStore((state) => state.setSelectedCheckpoint)
+  const sidebarTab = useAppStore((state) => state.sidebarTab)
+  const setSidebarTab = useAppStore((state) => state.setSidebarTab)
 
   // No more useEffect for syncing props to state - state is managed entirely by store
 

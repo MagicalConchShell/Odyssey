@@ -55,9 +55,7 @@ export interface ProjectSlice {
   setCheckpointHistory: (history: CheckpointInfo[]) => void
   resetProject: () => void
   
-  // Persistence
-  persistProjectState: () => void
-  loadPersistedProjectState: () => void
+  // Persistence is now handled automatically by persist middleware
 }
 
 // Initial project settings
@@ -140,7 +138,7 @@ export const createProjectSlice: StateCreator<
         projectSettings: { ...initialProjectSettings, ...newProject.settings },
         // Reset related UI state
         selectedCheckpoint: null,
-        sidebarTab: 'timeline',
+        sidebarTab: 'files',
         terminalMode: 'welcome'
       })
 
@@ -154,13 +152,7 @@ export const createProjectSlice: StateCreator<
         // Continue - user can manually create terminals
       }
 
-      // 5. Persist project state to localStorage
-      try {
-        get().persistProjectState()
-      } catch (error) {
-        console.warn('[AppStore] Failed to persist project state:', error)
-        // Non-critical failure
-      }
+      // Persistence is now handled automatically by persist middleware
 
       operationSuccessful = true
       console.log('[AppStore] Project switch completed successfully')
@@ -208,14 +200,14 @@ export const createProjectSlice: StateCreator<
     })
 
     set({ projectPath: normalizedPath })
-    get().persistProjectState()
+    // Persistence is now handled automatically by persist middleware
   },
 
   updateProjectSettings: (settings: Partial<ProjectSettings>) => {
     set((state) => ({
       projectSettings: { ...state.projectSettings, ...settings }
     }))
-    get().persistProjectState()
+    // Persistence is now handled automatically by persist middleware
   },
 
   setSelectedCheckpoint: (checkpoint: string | null) => {
@@ -239,70 +231,13 @@ export const createProjectSlice: StateCreator<
       projectSettings: initialProjectSettings,
       selectedCheckpoint: null,
       checkpointHistory: [],
-      sidebarTab: 'timeline',
+      sidebarTab: 'files',
       sidebarCollapsed: false,
       terminalMode: 'welcome'
     })
     
-    // Clear persisted state
-    try {
-      localStorage.removeItem('projectState')
-    } catch (error) {
-      console.warn('[AppStore] Failed to clear persisted project state:', error)
-    }
+    // Persistence clearing is now handled automatically by persist middleware
   },
 
-  // Persistence methods
-  persistProjectState: () => {
-    try {
-      const state = get()
-      const serializedState = JSON.stringify({
-        currentProject: state.currentProject,
-        projectPath: state.projectPath,
-        projectSettings: state.projectSettings,
-        sidebarTab: state.sidebarTab,
-        sidebarCollapsed: state.sidebarCollapsed,
-        terminalMode: state.terminalMode
-      })
-      localStorage.setItem('projectState', serializedState)
-    } catch (error) {
-      console.warn('[AppStore] Failed to persist project state:', error)
-    }
-  },
-
-  loadPersistedProjectState: () => {
-    try {
-      const serializedState = localStorage.getItem('projectState')
-      if (serializedState) {
-        const loadedState = JSON.parse(serializedState)
-        
-        // Validate and apply loaded state
-        const updates: Partial<ProjectSlice & UISlice> = {}
-        
-        if (loadedState.currentProject) {
-          updates.currentProject = loadedState.currentProject
-        }
-        if (loadedState.projectPath) {
-          updates.projectPath = loadedState.projectPath
-        }
-        if (loadedState.projectSettings) {
-          updates.projectSettings = { ...initialProjectSettings, ...loadedState.projectSettings }
-        }
-        if (loadedState.sidebarTab) {
-          updates.sidebarTab = loadedState.sidebarTab
-        }
-        if (typeof loadedState.sidebarCollapsed === 'boolean') {
-          updates.sidebarCollapsed = loadedState.sidebarCollapsed
-        }
-        if (loadedState.terminalMode) {
-          updates.terminalMode = loadedState.terminalMode
-        }
-
-        set(updates)
-        console.log('[AppStore] Loaded persisted project state')
-      }
-    } catch (error) {
-      console.warn('[AppStore] Failed to load persisted project state:', error)
-    }
-  }
+  // Persistence is now handled automatically by persist middleware
 })

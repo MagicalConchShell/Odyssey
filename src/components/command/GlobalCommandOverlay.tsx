@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CommandPalette } from './CommandPalette'
+import { Project } from '@/store'
 
 type View = 
   | "welcome"
@@ -17,7 +18,7 @@ interface GlobalCommandOverlayProps {
   onClose: () => void
   currentView: View
   onNavigate: (view: View) => void
-  onSelectProject: (projectPath: string) => void
+  onSelectProject: (project: Project) => void
   onOpenFolder: () => void
   onImportProjects: () => void
   className?: string
@@ -68,8 +69,8 @@ export const GlobalCommandOverlay: React.FC<GlobalCommandOverlayProps> = ({
     onClose()
   }
 
-  const handleSelectProject = (projectPath: string) => {
-    onSelectProject(projectPath)
+  const handleSelectProject = (project: Project) => {
+    onSelectProject(project)
     onClose()
   }
 
