@@ -16,12 +16,6 @@ export type {
   ApiResponse,
   ClaudeMdFile,
   ProjectStats,
-  GitHistory,
-  GitBranch,
-  GitCheckpoint,
-  GitFileInfo,
-  GitDiff,
-  GitStorageStats,
   GitStatusResult,
   ScreenshotResponse,
   ProjectCreateRequest,
@@ -30,6 +24,17 @@ export type {
   FileSystemEventType,
   FileSystemChangeEvent
 } from '../../electron/handlers/types';
+
+// Import git checkpoint types from backend
+export type {
+  CheckpointInfo,
+  FileRestoreInfo,
+  CheckpointDiff,
+  StorageStats,
+  FileDiff,
+  DiffStats,
+  CheckoutOptions
+} from '../../electron/types/checkpoint';
 
 // Import workspace state types
 export type {
@@ -99,6 +104,7 @@ declare global {
         readFile: (filePath: string) => Promise<FileResponse>;
         writeFile: (filePath: string, content: string) => Promise<FileResponse>;
         readDirectory: (dirPath: string) => Promise<ApiResponse<any[]>>;
+        getDirectoryChildren: (dirPath: string) => Promise<ApiResponse<any[]>>;
         getSystemPrompt: () => Promise<FileResponse>;
         saveSystemPrompt: (content: string) => Promise<FileResponse>;
         findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
@@ -144,23 +150,21 @@ declare global {
         getCacheStats: () => Promise<ApiResponse<any>>;
       };
 
-      // Git checkpoint handlers
-      gitCheckpoint: {
+      // Checkpoint handlers
+      checkpoint: {
         createCheckpoint: (projectPath: string, description?: string, author?: string) => Promise<ApiResponse<{ commitHash: string }>>;
-        checkout: (projectPath: string, ref: string, options?: any) => Promise<ApiResponse<void>>;
-        getHistory: (projectPath: string, branch?: string) => Promise<ApiResponse<GitHistory>>;
-        createBranch: (projectPath: string, branchName: string, startPoint?: string) => Promise<ApiResponse<void>>;
-        switchBranch: (projectPath: string, branchName: string) => Promise<ApiResponse<void>>;
-        listBranches: (projectPath: string) => Promise<ApiResponse<GitBranch[]>>;
-        deleteBranch: (projectPath: string, branchName: string) => Promise<ApiResponse<void>>;
-        getCheckpointInfo: (projectPath: string, ref: string) => Promise<ApiResponse<GitCheckpoint | null>>;
-        listFiles: (projectPath: string, ref: string) => Promise<ApiResponse<GitFileInfo[]>>;
-        getFileDiff: (projectPath: string, fromRef: string, toRef: string) => Promise<ApiResponse<GitDiff>>;
-        getCheckpointChanges: (projectPath: string, ref: string) => Promise<ApiResponse<any>>;
+        checkout: (projectPath: string, ref: string, options?: CheckoutOptions) => Promise<ApiResponse<void>>;
+        resetToCheckpoint: (projectPath: string, targetCommitHash: string) => Promise<ApiResponse<void>>;
+        deleteCheckpoint: (projectPath: string, commitHash: string) => Promise<ApiResponse<void>>;
+        getHistory: (projectPath: string) => Promise<ApiResponse<CheckpointInfo[]>>;
+        getCheckpointInfo: (projectPath: string, ref: string) => Promise<ApiResponse<CheckpointInfo | null>>;
+        listFiles: (projectPath: string, ref: string) => Promise<ApiResponse<FileRestoreInfo[]>>;
+        getFileDiff: (projectPath: string, fromRef: string, toRef: string) => Promise<ApiResponse<CheckpointDiff>>;
+        getCheckpointChanges: (projectPath: string, ref: string) => Promise<ApiResponse<CheckpointDiff>>;
         getFileContent: (projectPath: string, ref: string, filePath: string) => Promise<ApiResponse<string>>;
         getFileContentByHash: (projectPath: string, hash: string) => Promise<ApiResponse<string>>;
-        getFileContentDiff: (projectPath: string, fromRef: string, toRef: string, filePath: string) => Promise<ApiResponse<GitDiff>>;
-        getStorageStats: (projectPath: string) => Promise<ApiResponse<GitStorageStats>>;
+        getFileContentDiff: (projectPath: string, fromRef: string, toRef: string, filePath: string) => Promise<ApiResponse<any>>;
+        getStorageStats: (projectPath: string) => Promise<ApiResponse<StorageStats>>;
         garbageCollect: (projectPath: string) => Promise<ApiResponse<void>>;
         optimizeStorage: (projectPath: string) => Promise<ApiResponse<void>>;
         getGitStatus: (projectPath: string) => Promise<ApiResponse<GitStatusResult>>;

@@ -1,53 +1,41 @@
-// Git-style checkpoint system type definitions
-// Import Git checkpoint types
+// Checkpoint system type definitions
+// Import checkpoint types
 
 export type {
-  GitCheckpointInfo,
+  CheckpointInfo,
   CheckpointDiff,
   FileRestoreInfo,
   StorageStats,
   FileDiff
-} from '../../electron/types/git-checkpoint';
+} from '../../electron/types/checkpoint';
 
-export type {
-  GitHistory,
-  GitCommit,
-  GitBranch
-} from '../../electron/handlers/types';
+// Removed GitHistory and GitCommit - now using CheckpointInfo[] directly
 
 // Re-export as old interface names for compatibility
 import type {
-  GitCheckpointInfo as _GitCheckpointInfo,
+  CheckpointInfo as _CheckpointInfo,
   CheckpointDiff as _CheckpointDiff,
-  FileRestoreInfo as _FileRestoreInfo,
-  BranchInfo as _BranchInfo
-} from '../../electron/types/git-checkpoint';
+  FileRestoreInfo as _FileRestoreInfo
+} from '../../electron/types/checkpoint';
 
 // Compatibility aliases
-export type CheckpointInfo = _GitCheckpointInfo;
-export type BranchInfo = _BranchInfo;
 export type FileSnapshot = _FileRestoreInfo;
 
-// Timeline tree node (for Git-style timeline visualization)
+// Timeline tree node (for checkpoint timeline visualization)
 export interface TimelineTreeNode {
-  checkpoint: _GitCheckpointInfo;      // Checkpoint information
-  columnIndex: number;                // Horizontal column index (branch column)
+  checkpoint: _CheckpointInfo;      // Checkpoint information
+  columnIndex: number;                // Always 0 for linear timeline
   rowIndex: number;                   // Vertical row index (time order)
-  branchColor: string;               // Branch color
+  timelineColor: string;             // Timeline color (consistent naming)
   isCurrent: boolean;                // Whether this is the current checkpoint
-  isMergeCommit: boolean;            // Whether this is a merge commit
-  isBranchPoint: boolean;            // Whether this is a branch point
-  branchName: string;                // Branch name this belongs to
 }
 
-// Connection line information (for drawing timeline connections)
+// Connection line information (for drawing simple vertical timeline connections)
 export interface ConnectionLine {
-  from: { rowIndex: number; columnIndex: number };   // Start coordinates (row/column index)
-  to: { rowIndex: number; columnIndex: number };     // End coordinates (row/column index)
-  type: 'direct' | 'branch' | 'merge'; // Connection type
+  from: { rowIndex: number; columnIndex: number };   // Start coordinates (always column 0)
+  to: { rowIndex: number; columnIndex: number };     // End coordinates (always column 0)
   color: string;                    // Line color
   strokeWidth: number;              // Line width
-  pathData?: string;                // SVG path data (for curves)
 }
 
 // UI state types
@@ -72,43 +60,8 @@ export interface CheckpointOperationResult {
   };
 }
 
-// Branch operation result
-export interface BranchOperationResult {
-  success: boolean;
-  branchName?: string;
-  commitHash?: string;
-  error?: string;
-  operation: 'create' | 'switch' | 'delete' | 'merge';
-  metadata?: {
-    parentCommit?: string;
-    isDetachedHead?: boolean;
-    conflictFiles?: string[];
-  };
-}
 
-// Branch state information
-export interface BranchState {
-  currentBranch: string | null;
-  isDetachedHead: boolean;
-  availableBranches: _BranchInfo[];
-  uncommittedChanges: boolean;
-  ahead: number; // Commits ahead of base
-  behind: number; // Commits behind base
-}
 
-// Merge operation result
-export interface MergeOperationResult {
-  success: boolean;
-  resultCommitHash?: string;
-  error?: string;
-  conflictFiles?: string[];
-  mergeStrategy: 'fast-forward' | 'recursive' | 'manual';
-  stats?: {
-    filesChanged: number;
-    insertions: number;
-    deletions: number;
-  };
-}
 
 // Storage optimization result
 export interface StorageOptimizationResult {
@@ -126,43 +79,18 @@ export interface StorageOptimizationResult {
 export interface CheckpointSystemAPI {
   createCheckpoint(projectPath: string, description?: string): Promise<CheckpointOperationResult>;
   checkout(projectPath: string, ref: string): Promise<CheckpointOperationResult>;
-  getHistory(projectPath: string, branch?: string): Promise<_GitCheckpointInfo[]>;
-  getBranches(projectPath: string): Promise<_BranchInfo[]>;
+  getHistory(projectPath: string): Promise<_CheckpointInfo[]>;
   getCheckpointDiff(projectPath: string, fromRef: string, toRef: string): Promise<_CheckpointDiff>;
   optimizeStorage(projectPath: string): Promise<StorageOptimizationResult>;
-  
-  // Branch operations
-  createBranch(projectPath: string, branchName: string, startPoint?: string): Promise<BranchOperationResult>;
-  switchBranch(projectPath: string, branchName: string): Promise<BranchOperationResult>;
-  deleteBranch(projectPath: string, branchName: string): Promise<BranchOperationResult>;
-  getBranchState(projectPath: string): Promise<BranchState>;
-  
-  // Merge operations
-  mergeBranch(projectPath: string, sourceBranch: string, targetBranch: string): Promise<MergeOperationResult>;
-  canMerge(projectPath: string, sourceBranch: string, targetBranch: string): Promise<boolean>;
 }
 
-// Branch name validation rules
-export interface BranchValidationRules {
-  readonly MAX_LENGTH: number;
-  readonly MIN_LENGTH: number;
-  readonly FORBIDDEN_CHARS: RegExp;
-  readonly RESERVED_NAMES: string[];
-}
 
-// Branch name validation result
-export interface BranchValidationResult {
-  isValid: boolean;
-  error?: string;
-  suggestions?: string[];
-}
 
-// Timeline navigation context
+// Timeline navigation context (simplified for linear history)
 export interface TimelineNavigationContext {
-  currentCommit: string;
-  parentCommits: string[];
-  childCommits: string[];
-  branchPath: string[];
+  currentCheckpoint: string;
+  parentCheckpoint: string | null;
+  childCheckpoint: string | null;
   canNavigateBack: boolean;
   canNavigateForward: boolean;
 }
@@ -172,8 +100,6 @@ export interface KeyboardShortcuts {
   navigateUp: string;
   navigateDown: string;
   createCheckpoint: string;
-  createBranch: string;
-  switchBranch: string;
   restoreCheckpoint: string;
   showDetails: string;
   search: string;

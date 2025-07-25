@@ -5,7 +5,7 @@ import { setupProjectManagementHandlers } from './project-management-handler.js'
 import { setupSettingsHandlers } from './settings-handler.js';
 import { setupUsageAnalyticsHandlers } from './usage-analytics-handler.js';
 import { setupMcpHandlers } from './mcp-handler.js';
-import { setupGitCheckpointHandlers } from './git-checkpoint-handler.js';
+import { setupCheckpointHandlers } from './checkpoint-handler.js';
 import { setupSystemHandlers } from './system-handler.js';
 import { setupTerminalHandlers } from './terminal-handler.js';
 import { setupWorkspaceStateHandlers } from './workspace-state-handler.js';
@@ -24,7 +24,7 @@ export function setupAllHandlers(ipcMain: IpcMain): void {
   setupSettingsHandlers(ipcMain);
   setupUsageAnalyticsHandlers(ipcMain);
   setupMcpHandlers(ipcMain);
-  setupGitCheckpointHandlers(ipcMain);
+  setupCheckpointHandlers(ipcMain);
   setupWorkspaceStateHandlers(ipcMain);
   setupTerminalHandlers(ipcMain);
   
@@ -49,7 +49,7 @@ export {
   setupSettingsHandlers,
   setupUsageAnalyticsHandlers,
   setupMcpHandlers,
-  setupGitCheckpointHandlers,
+  setupCheckpointHandlers,
   setupSystemHandlers,
   setupTerminalHandlers,
   setupWorkspaceStateHandlers

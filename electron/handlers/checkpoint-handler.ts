@@ -1,14 +1,44 @@
 import {IpcMain} from 'electron';
-import {GitCheckpointStorage} from '../services/git-checkpoint-service.js';
+import {CheckpointStorage} from '../services/checkpoint-service.js';
 import {registerHandler} from './base-handler.js';
-import {ApiResponse, GitBranch, GitDiff, GitFileInfo, GitHistory, GitStorageStats, GitStatusResult} from './types.js';
+import {ApiResponse, GitStatusResult} from './types.js';
 import type {
-  BranchInfo,
   CheckoutOptions,
   CheckpointDiff,
   FileRestoreInfo,
-  GitCheckpointInfo
-} from '../types/git-checkpoint.js';
+  CheckpointInfo,
+  StorageStats
+} from '../types/checkpoint.js';
+
+/**
+ * Higher-order function to wrap storage operations with consistent error handling
+ */
+async function withStorageOperation<T>(
+  operation: (storage: CheckpointStorage) => Promise<T>
+): Promise<ApiResponse<T>> {
+  try {
+    const storage = new CheckpointStorage();
+    const result = await operation(storage);
+    return { success: true, data: result };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * For operations that don't return data, only success/failure
+ */
+async function withVoidStorageOperation(
+  operation: (storage: CheckpointStorage) => Promise<void>
+): Promise<ApiResponse<void>> {
+  try {
+    const storage = new CheckpointStorage();
+    await operation(storage);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
 
 /**
  * Create a new checkpoint
@@ -18,17 +48,10 @@ async function createCheckpoint(
   description?: string,
   author?: string
 ): Promise<ApiResponse<{ commitHash: string }>> {
-  try {
-    const storage = new GitCheckpointStorage();
+  return withStorageOperation(async (storage) => {
     const commitHash = await storage.createCheckpoint(projectPath, description, author);
-
-    return {
-      success: true,
-      data: {commitHash}
-    };
-  } catch (error: any) {
-    return {success: false, error: error.message};
-  }
+    return { commitHash };
+  });
 }
 
 /**
@@ -39,108 +62,47 @@ async function checkout(
   ref: string,
   options?: CheckoutOptions
 ): Promise<ApiResponse<void>> {
-  try {
-    const storage = new GitCheckpointStorage();
+  return withVoidStorageOperation(async (storage) => {
     await storage.checkout(projectPath, ref, options);
-
-    return {success: true};
-  } catch (error: any) {
-    return {success: false, error: error.message};
-  }
+  });
 }
 
 /**
- * Get commit history
+ * Reset to a specific checkpoint (destructive operation)
+ */
+async function resetToCheckpoint(
+  projectPath: string,
+  targetCommitHash: string
+): Promise<ApiResponse<void>> {
+  return withVoidStorageOperation(async (storage) => {
+    await storage.resetToCheckpoint(projectPath, targetCommitHash);
+  });
+}
+
+/**
+ * Delete a checkpoint (only supports deleting the latest checkpoint)
+ */
+async function deleteCheckpoint(
+  projectPath: string,
+  commitHash: string
+): Promise<ApiResponse<void>> {
+  return withVoidStorageOperation(async (storage) => {
+    await storage.deleteCheckpoint(projectPath, commitHash);
+  });
+}
+
+/**
+ * Get commit history - returns CheckpointInfo[] directly
  */
 async function getHistory(
-  projectPath: string,
-  branch?: string
-): Promise<GitHistory> {
-
-  const storage = new GitCheckpointStorage();
-  const history = await storage.getHistory(projectPath, branch);
-
-  // Convert GitCheckpointInfo[] to GitHistory format
-  return {
-    commits: history.map((info: GitCheckpointInfo) => ({
-      hash: info.hash,
-      message: info.description,
-      author: info.author,
-      date: info.timestamp,
-      parents: info.parents
-    })),
-    branches: [] // Will be populated separately if needed
-  }
-}
-
-/**
- * Create a new branch
- */
-async function createBranch(
-  projectPath: string,
-  branchName: string,
-  startPoint?: string
-): Promise<ApiResponse<void>> {
-  try {
-    const storage = new GitCheckpointStorage();
-    await storage.createBranch(projectPath, branchName, startPoint);
-
-    return {success: true};
-  } catch (error: any) {
-    return {success: false, error: error.message};
-  }
-}
-
-/**
- * Switch to a different branch
- */
-async function switchBranch(
-  projectPath: string,
-  branchName: string
-): Promise<ApiResponse<void>> {
-  try {
-    const storage = new GitCheckpointStorage();
-    await storage.switchBranch(projectPath, branchName);
-
-    return {success: true};
-  } catch (error: any) {
-    return {success: false, error: error.message};
-  }
-}
-
-/**
- * List all branches
- */
-async function listBranches(
   projectPath: string
-): Promise<GitBranch[]> {
-  const storage = new GitCheckpointStorage();
-  const branches = await storage.listBranches(projectPath);
-
-  // Convert BranchInfo[] to GitBranch[] format
-  return branches.map((branch: BranchInfo) => ({
-    name: branch.name,
-    current: false, // TODO: Determine current branch
-    hash: branch.commitHash
-  }))
+): Promise<CheckpointInfo[]> {
+  const storage = new CheckpointStorage();
+  return storage.getHistory(projectPath);
 }
 
-/**
- * Delete a branch
- */
-async function deleteBranch(
-  projectPath: string,
-  branchName: string
-): Promise<ApiResponse<void>> {
-  try {
-    const storage = new GitCheckpointStorage();
-    await storage.deleteBranch(projectPath, branchName);
 
-    return {success: true};
-  } catch (error: any) {
-    return {success: false, error: error.message};
-  }
-}
+
 
 /**
  * Get checkpoint information
@@ -148,71 +110,32 @@ async function deleteBranch(
 async function getCheckpointInfo(
   projectPath: string,
   ref: string
-): Promise<GitCheckpointInfo | null> {
-  try {
-    const storage = new GitCheckpointStorage();
-    return await storage.getCheckpointInfo(projectPath, ref);
-  } catch (error: any) {
-    throw new Error(error.message);
-  }
+): Promise<CheckpointInfo | null> {
+  const storage = new CheckpointStorage();
+  return storage.getCheckpointInfo(projectPath, ref);
 }
 
 /**
- * List files in a checkpoint
+ * List files in a checkpoint - returns FileRestoreInfo[] directly
  */
 async function listFiles(
   projectPath: string,
   ref: string
-): Promise<GitFileInfo[]> {
-  try {
-    const storage = new GitCheckpointStorage();
-    const files = await storage.listFiles(projectPath, ref);
-
-    // Convert FileRestoreInfo[] to GitFileInfo[] format
-    return files.map((file: FileRestoreInfo) => ({
-      path: file.path,
-      hash: file.hash,
-      size: file.size,
-      mode: file.mode.toString()
-    }));
-  } catch (error: any) {
-    throw new Error(error.message);
-  }
+): Promise<FileRestoreInfo[]> {
+  const storage = new CheckpointStorage();
+  return storage.listFiles(projectPath, ref);
 }
 
 /**
- * Get file diff between commits
+ * Get file diff between commits - returns CheckpointDiff directly
  */
 async function getFileDiff(
   projectPath: string,
   fromRef: string,
   toRef: string
-): Promise<GitDiff> {
-  try {
-    const storage = new GitCheckpointStorage();
-    const diff = await storage.getFileDiff(projectPath, fromRef, toRef);
-
-    // Convert CheckpointDiff to GitDiff format
-    const gitDiff: GitDiff = {
-      files: (diff.files || []).map(file => ({
-        path: file.path,
-        status: file.type as 'added' | 'modified' | 'deleted' | 'renamed',
-        oldPath: file.oldPath,
-        additions: 0, // TODO: Calculate line changes
-        deletions: 0, // TODO: Calculate line changes
-        content: undefined // Content will be loaded separately if needed
-      })),
-      stats: {
-        additions: diff.stats.totalChanges,
-        deletions: 0, // TODO: Calculate deletions
-        changes: diff.stats.totalChanges
-      }
-    };
-
-    return gitDiff;
-  } catch (error: any) {
-    throw new Error(error.message);
-  }
+): Promise<CheckpointDiff> {
+  const storage = new CheckpointStorage();
+  return storage.getFileDiff(projectPath, fromRef, toRef);
 }
 
 /**
@@ -222,12 +145,8 @@ async function getCheckpointChanges(
   projectPath: string,
   ref: string
 ): Promise<CheckpointDiff> {
-  try {
-    const storage = new GitCheckpointStorage();
-    return await storage.getCheckpointChanges(projectPath, ref);
-  } catch (error: any) {
-    throw new Error(error.message);
-  }
+  const storage = new CheckpointStorage();
+  return storage.getCheckpointChanges(projectPath, ref);
 }
 
 /**
@@ -238,18 +157,14 @@ async function getFileContent(
   ref: string,
   filePath: string
 ): Promise<string> {
-  try {
-    const storage = new GitCheckpointStorage();
-    const content = await storage.getFileContent(projectPath, ref, filePath);
+  const storage = new CheckpointStorage();
+  const content = await storage.getFileContent(projectPath, ref, filePath);
 
-    if (content === null) {
-      throw new Error(`File not found: ${filePath} at ref ${ref}`);
-    }
-
-    return content;
-  } catch (error: any) {
-    throw new Error(error.message);
+  if (content === null) {
+    throw new Error(`File not found: ${filePath} at ref ${ref}`);
   }
+
+  return content;
 }
 
 /**
@@ -259,31 +174,43 @@ async function getFileContentByHash(
   projectPath: string,
   hash: string
 ): Promise<string> {
-  try {
-    const storage = new GitCheckpointStorage();
-    const content = await storage.getFileContentByHash(projectPath, hash);
+  const storage = new CheckpointStorage();
+  const content = await storage.getFileContentByHash(projectPath, hash);
 
-    if (content === null) {
-      throw new Error(`File not found for hash: ${hash}`);
-    }
-
-    return content;
-  } catch (error: any) {
-    throw new Error(error.message);
+  if (content === null) {
+    throw new Error(`File not found for hash: ${hash}`);
   }
+
+  return content;
+}
+
+// Simple interface for file content diff result
+interface FileContentDiffResult {
+  files: Array<{
+    path: string;
+    status: 'added' | 'modified' | 'deleted' | 'renamed';
+    additions: number;
+    deletions: number;
+    content: string;
+  }>;
+  stats: {
+    additions: number;
+    deletions: number;
+    changes: number;
+  };
 }
 
 /**
- * Get file content diff
+ * Get file content diff with computed line differences
  */
 async function getFileContentDiff(
   projectPath: string,
   fromRef: string,
   toRef: string,
   filePath: string
-): Promise<GitDiff> {
+): Promise<FileContentDiffResult> {
   try {
-    const storage = new GitCheckpointStorage();
+    const storage = new CheckpointStorage();
     const diffResult = await storage.getFileContentDiff(projectPath, fromRef, toRef, filePath);
 
     // Calculate basic diff stats based on content
@@ -340,25 +267,13 @@ async function getFileContentDiff(
 }
 
 /**
- * Get storage statistics
+ * Get storage statistics - returns StorageStats directly
  */
 async function getStorageStats(
   projectPath: string
-): Promise<GitStorageStats> {
-  try {
-    const storage = new GitCheckpointStorage();
-    const stats = await storage.getStorageStats(projectPath);
-
-    // Convert StorageStats to GitStorageStats format
-    return {
-      totalSize: stats.storageSize,
-      objectCount: stats.totalObjects,
-      branchCount: 0, // TODO: Get branch count
-      commitCount: stats.totalCommits
-    };
-  } catch (error: any) {
-    throw new Error(error.message);
-  }
+): Promise<StorageStats> {
+  const storage = new CheckpointStorage();
+  return storage.getStorageStats(projectPath);
 }
 
 /**
@@ -367,9 +282,8 @@ async function getStorageStats(
 async function garbageCollect(
   projectPath: string
 ): Promise<void> {
-
-  const storage = new GitCheckpointStorage();
-  await storage.garbageCollect(projectPath);
+  const storage = new CheckpointStorage();
+  return storage.garbageCollect(projectPath);
 }
 
 /**
@@ -378,9 +292,8 @@ async function garbageCollect(
 async function optimizeStorage(
   projectPath: string
 ): Promise<void> {
-
-  const storage = new GitCheckpointStorage();
-  await storage.garbageCollect(projectPath);
+  const storage = new CheckpointStorage();
+  return storage.garbageCollect(projectPath);
 }
 
 /**
@@ -390,7 +303,7 @@ async function getGitStatus(
   projectPath: string
 ): Promise<GitStatusResult> {
   try {
-    const storage = new GitCheckpointStorage();
+    const storage = new CheckpointStorage();
     
     // Get the current HEAD commit
     const history = await storage.getHistory(projectPath);
@@ -547,132 +460,119 @@ async function compareFiles(
 }
 
 /**
- * Register all git checkpoint related IPC handlers
+ * Register all checkpoint related IPC handlers
  */
-export function setupGitCheckpointHandlers(ipcMain: IpcMain): void {
+export function setupCheckpointHandlers(ipcMain: IpcMain): void {
   // Create checkpoint
   registerHandler(
     ipcMain,
-    'git-checkpoint:createCheckpoint',
+    'checkpoint:createCheckpoint',
     createCheckpoint
   );
 
   // Checkout
   registerHandler(
     ipcMain,
-    'git-checkpoint:checkout',
+    'checkpoint:checkout',
     checkout
+  );
+
+  // Reset to checkpoint
+  registerHandler(
+    ipcMain,
+    'checkpoint:resetToCheckpoint',
+    resetToCheckpoint
+  );
+
+  // Delete checkpoint
+  registerHandler(
+    ipcMain,
+    'checkpoint:deleteCheckpoint',
+    deleteCheckpoint
   );
 
   // Get history
   registerHandler(
     ipcMain,
-    'git-checkpoint:getHistory',
+    'checkpoint:getHistory',
     getHistory
   );
 
-  // Create branch
-  registerHandler(
-    ipcMain,
-    'git-checkpoint:createBranch',
-    createBranch
-  );
-
-  // Switch branch
-  registerHandler(
-    ipcMain,
-    'git-checkpoint:switchBranch',
-    switchBranch
-  );
-
-  // List branches
-  registerHandler(
-    ipcMain,
-    'git-checkpoint:listBranches',
-    listBranches
-  );
-
-  // Delete branch
-  registerHandler(
-    ipcMain,
-    'git-checkpoint:deleteBranch',
-    deleteBranch
-  );
 
   // Get checkpoint info
   registerHandler(
     ipcMain,
-    'git-checkpoint:getCheckpointInfo',
+    'checkpoint:getCheckpointInfo',
     getCheckpointInfo
   );
 
   // List files
   registerHandler(
     ipcMain,
-    'git-checkpoint:listFiles',
+    'checkpoint:listFiles',
     listFiles
   );
 
   // Get file diff
   registerHandler(
     ipcMain,
-    'git-checkpoint:getFileDiff',
+    'checkpoint:getFileDiff',
     getFileDiff
   );
 
   // Get checkpoint changes
   registerHandler(
     ipcMain,
-    'git-checkpoint:getCheckpointChanges',
+    'checkpoint:getCheckpointChanges',
     getCheckpointChanges
   );
 
   // Get file content
   registerHandler(
     ipcMain,
-    'git-checkpoint:getFileContent',
+    'checkpoint:getFileContent',
     getFileContent
   );
 
   // Get file content by hash
   registerHandler(
     ipcMain,
-    'git-checkpoint:getFileContentByHash',
+    'checkpoint:getFileContentByHash',
     getFileContentByHash
   );
 
   // Get file content diff
   registerHandler(
     ipcMain,
-    'git-checkpoint:getFileContentDiff',
+    'checkpoint:getFileContentDiff',
     getFileContentDiff
   );
 
   // Get storage stats
   registerHandler(
     ipcMain,
-    'git-checkpoint:getStorageStats',
+    'checkpoint:getStorageStats',
     getStorageStats
   );
 
   // Garbage collect
   registerHandler(
     ipcMain,
-    'git-checkpoint:garbageCollect',
+    'checkpoint:garbageCollect',
     garbageCollect
   );
 
   // Optimize storage
   registerHandler(
     ipcMain,
-    'git-checkpoint:optimizeStorage',
+    'checkpoint:optimizeStorage',
     optimizeStorage
   );
 
   // Get git status
   registerHandler(
     ipcMain,
-    'git-checkpoint:getGitStatus',
+    'checkpoint:getGitStatus',
     getGitStatus
   );
 

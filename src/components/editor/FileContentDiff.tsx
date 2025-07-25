@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { getFileExtension, getLanguageFromExtension } from '../project/lib/file-utils'
-import { FileDiff, DiffType } from '../../../electron/types/git-checkpoint'
+import { FileDiff, DiffType } from '../../../electron/types/checkpoint'
 import SyntaxHighlighterLazy from './SyntaxHighlighterLazy'
 
 interface FileContentDiffProps {
@@ -178,7 +178,7 @@ export const FileContentDiff: React.FC<FileContentDiffProps> = ({
     setError(null)
     
     try {
-      const result = await window.electronAPI.gitCheckpoint.getFileContentDiff(
+      const result = await window.electronAPI.checkpoint.getFileContentDiff(
         projectPath,
         fromRef,
         toRef,

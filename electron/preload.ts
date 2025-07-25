@@ -2,12 +2,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   Project,
   ApiResponse,
-  GitHistory,
-  GitBranch,
-  GitCheckpoint,
-  GitFileInfo,
-  GitDiff,
-  GitStorageStats,
   GitStatusResult,
   ProjectStats,
   Session,
@@ -26,6 +20,12 @@ import {
   ProjectUpdateRequest,
   ClaudeProjectImportCandidate
 } from './handlers/types';
+import type {
+  CheckpointInfo,
+  FileRestoreInfo,
+  CheckpointDiff,
+  StorageStats
+} from './types/checkpoint';
 import { FS_CHANNELS, WORKSPACE_STATE_CHANNELS } from './ipc-channels';
 import type {
   WorkspaceState,
@@ -110,23 +110,21 @@ export interface IElectronAPI {
     getCacheStats: () => Promise<ApiResponse<any>>;
   };
 
-  // Git checkpoint handlers
-  gitCheckpoint: {
+  // Checkpoint handlers
+  checkpoint: {
     createCheckpoint: (projectPath: string, description?: string, author?: string) => Promise<ApiResponse<{ commitHash: string }>>;
     checkout: (projectPath: string, ref: string, options?: any) => Promise<ApiResponse<void>>;
-    getHistory: (projectPath: string, branch?: string) => Promise<ApiResponse<GitHistory>>;
-    createBranch: (projectPath: string, branchName: string, startPoint?: string) => Promise<ApiResponse<void>>;
-    switchBranch: (projectPath: string, branchName: string) => Promise<ApiResponse<void>>;
-    listBranches: (projectPath: string) => Promise<ApiResponse<GitBranch[]>>;
-    deleteBranch: (projectPath: string, branchName: string) => Promise<ApiResponse<void>>;
-    getCheckpointInfo: (projectPath: string, ref: string) => Promise<ApiResponse<GitCheckpoint | null>>;
-    listFiles: (projectPath: string, ref: string) => Promise<ApiResponse<GitFileInfo[]>>;
-    getFileDiff: (projectPath: string, fromRef: string, toRef: string) => Promise<ApiResponse<GitDiff>>;
-    getCheckpointChanges: (projectPath: string, ref: string) => Promise<ApiResponse<any>>;
+    resetToCheckpoint: (projectPath: string, targetCommitHash: string) => Promise<ApiResponse<void>>;
+    deleteCheckpoint: (projectPath: string, commitHash: string) => Promise<ApiResponse<void>>;
+    getHistory: (projectPath: string) => Promise<ApiResponse<CheckpointInfo[]>>;
+    getCheckpointInfo: (projectPath: string, ref: string) => Promise<ApiResponse<CheckpointInfo | null>>;
+    listFiles: (projectPath: string, ref: string) => Promise<ApiResponse<FileRestoreInfo[]>>;
+    getFileDiff: (projectPath: string, fromRef: string, toRef: string) => Promise<ApiResponse<CheckpointDiff>>;
+    getCheckpointChanges: (projectPath: string, ref: string) => Promise<ApiResponse<CheckpointDiff>>;
     getFileContent: (projectPath: string, ref: string, filePath: string) => Promise<ApiResponse<string>>;
     getFileContentByHash: (projectPath: string, hash: string) => Promise<ApiResponse<string>>;
-    getFileContentDiff: (projectPath: string, fromRef: string, toRef: string, filePath: string) => Promise<ApiResponse<GitDiff>>;
-    getStorageStats: (projectPath: string) => Promise<ApiResponse<GitStorageStats>>;
+    getFileContentDiff: (projectPath: string, fromRef: string, toRef: string, filePath: string) => Promise<ApiResponse<any>>;
+    getStorageStats: (projectPath: string) => Promise<ApiResponse<StorageStats>>;
     garbageCollect: (projectPath: string) => Promise<ApiResponse<void>>;
     optimizeStorage: (projectPath: string) => Promise<ApiResponse<void>>;
     getGitStatus: (projectPath: string) => Promise<ApiResponse<GitStatusResult>>;
@@ -241,26 +239,24 @@ const electronAPI: IElectronAPI = {
     getCacheStats: () => ipcRenderer.invoke('get-cache-stats'),
   },
 
-  // Git checkpoint handlers
-  gitCheckpoint: {
-    createCheckpoint: (projectPath, description, author) => ipcRenderer.invoke('git-checkpoint:createCheckpoint', projectPath, description, author),
-    checkout: (projectPath, ref, options) => ipcRenderer.invoke('git-checkpoint:checkout', projectPath, ref, options),
-    getHistory: (projectPath, branch) => ipcRenderer.invoke('git-checkpoint:getHistory', projectPath, branch),
-    createBranch: (projectPath, branchName, startPoint) => ipcRenderer.invoke('git-checkpoint:createBranch', projectPath, branchName, startPoint),
-    switchBranch: (projectPath, branchName) => ipcRenderer.invoke('git-checkpoint:switchBranch', projectPath, branchName),
-    listBranches: (projectPath) => ipcRenderer.invoke('git-checkpoint:listBranches', projectPath),
-    deleteBranch: (projectPath, branchName) => ipcRenderer.invoke('git-checkpoint:deleteBranch', projectPath, branchName),
-    getCheckpointInfo: (projectPath, ref) => ipcRenderer.invoke('git-checkpoint:getCheckpointInfo', projectPath, ref),
-    listFiles: (projectPath, ref) => ipcRenderer.invoke('git-checkpoint:listFiles', projectPath, ref),
-    getFileDiff: (projectPath, fromRef, toRef) => ipcRenderer.invoke('git-checkpoint:getFileDiff', projectPath, fromRef, toRef),
-    getCheckpointChanges: (projectPath, ref) => ipcRenderer.invoke('git-checkpoint:getCheckpointChanges', projectPath, ref),
-    getFileContent: (projectPath, ref, filePath) => ipcRenderer.invoke('git-checkpoint:getFileContent', projectPath, ref, filePath),
-    getFileContentByHash: (projectPath, hash) => ipcRenderer.invoke('git-checkpoint:getFileContentByHash', projectPath, hash),
-    getFileContentDiff: (projectPath, fromRef, toRef, filePath) => ipcRenderer.invoke('git-checkpoint:getFileContentDiff', projectPath, fromRef, toRef, filePath),
-    getStorageStats: (projectPath) => ipcRenderer.invoke('git-checkpoint:getStorageStats', projectPath),
-    garbageCollect: (projectPath) => ipcRenderer.invoke('git-checkpoint:garbageCollect', projectPath),
-    optimizeStorage: (projectPath) => ipcRenderer.invoke('git-checkpoint:optimizeStorage', projectPath),
-    getGitStatus: (projectPath) => ipcRenderer.invoke('git-checkpoint:getGitStatus', projectPath),
+  // Checkpoint handlers
+  checkpoint: {
+    createCheckpoint: (projectPath, description, author) => ipcRenderer.invoke('checkpoint:createCheckpoint', projectPath, description, author),
+    checkout: (projectPath, ref, options) => ipcRenderer.invoke('checkpoint:checkout', projectPath, ref, options),
+    resetToCheckpoint: (projectPath, targetCommitHash) => ipcRenderer.invoke('checkpoint:resetToCheckpoint', projectPath, targetCommitHash),
+    deleteCheckpoint: (projectPath, commitHash) => ipcRenderer.invoke('checkpoint:deleteCheckpoint', projectPath, commitHash),
+    getHistory: (projectPath: string) => ipcRenderer.invoke('checkpoint:getHistory', projectPath),
+    getCheckpointInfo: (projectPath, ref) => ipcRenderer.invoke('checkpoint:getCheckpointInfo', projectPath, ref),
+    listFiles: (projectPath, ref) => ipcRenderer.invoke('checkpoint:listFiles', projectPath, ref),
+    getFileDiff: (projectPath, fromRef, toRef) => ipcRenderer.invoke('checkpoint:getFileDiff', projectPath, fromRef, toRef),
+    getCheckpointChanges: (projectPath, ref) => ipcRenderer.invoke('checkpoint:getCheckpointChanges', projectPath, ref),
+    getFileContent: (projectPath, ref, filePath) => ipcRenderer.invoke('checkpoint:getFileContent', projectPath, ref, filePath),
+    getFileContentByHash: (projectPath, hash) => ipcRenderer.invoke('checkpoint:getFileContentByHash', projectPath, hash),
+    getFileContentDiff: (projectPath, fromRef, toRef, filePath) => ipcRenderer.invoke('checkpoint:getFileContentDiff', projectPath, fromRef, toRef, filePath),
+    getStorageStats: (projectPath) => ipcRenderer.invoke('checkpoint:getStorageStats', projectPath),
+    garbageCollect: (projectPath) => ipcRenderer.invoke('checkpoint:garbageCollect', projectPath),
+    optimizeStorage: (projectPath) => ipcRenderer.invoke('checkpoint:optimizeStorage', projectPath),
+    getGitStatus: (projectPath) => ipcRenderer.invoke('checkpoint:getGitStatus', projectPath),
   },
 
   // Project management handlers

@@ -10,15 +10,15 @@ const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 /**
- * Git-style object types
+ * Object storage types
  */
-export type GitObjectType = 'blob' | 'tree' | 'commit';
+export type ObjectType = 'blob' | 'tree' | 'commit';
 
 /**
- * Git object interface
+ * Storage object interface
  */
-export interface GitObject {
-  type: GitObjectType;
+export interface StorageObject {
+  type: ObjectType;
   hash: string;
   size: number;
 }
@@ -26,7 +26,7 @@ export interface GitObject {
 /**
  * Blob object - stores file content
  */
-export interface BlobObject extends GitObject {
+export interface BlobObject extends StorageObject {
   type: 'blob';
   content: Buffer;
 }
@@ -45,18 +45,18 @@ export interface TreeEntry {
 /**
  * Tree object - stores directory structure
  */
-export interface TreeObject extends GitObject {
+export interface TreeObject extends StorageObject {
   type: 'tree';
   entries: TreeEntry[];
 }
 
 /**
- * Commit object - stores checkpoint information
+ * Commit object - stores checkpoint information (simplified for linear history)
  */
-export interface CommitObject extends GitObject {
+export interface CommitObject extends StorageObject {
   type: 'commit';
   tree: string;           // Root tree object hash
-  parents: string[];      // Parent commit hash list
+  parent: string | null;  // Parent commit hash (single parent for linear history)
   author: string;         // Author
   timestamp: string;      // Timestamp
   message: string;        // Commit message
@@ -75,9 +75,9 @@ export interface ObjectStoreStats {
 }
 
 /**
- * Git-style object storage system
+ * Content-addressable object storage system
  */
-export class GitObjectStore {
+export class ObjectStore {
   private objectsDir: string;
   private compressionLevel: number;
   private objectsCache: { objects: string[], timestamp: number } | null = null;
@@ -209,7 +209,7 @@ export class GitObjectStore {
   /**
    * Read an object
    */
-  async readObject(hash: string): Promise<GitObject | null> {
+  async readObject(hash: string): Promise<StorageObject | null> {
     const objectPath = this.getObjectPath(hash);
     
     try {
@@ -232,7 +232,7 @@ export class GitObjectStore {
         throw new Error('Object size mismatch');
       }
       
-      switch (type as GitObjectType) {
+      switch (type as ObjectType) {
         case 'blob':
           return {
             type: 'blob',
@@ -377,7 +377,7 @@ export class GitObjectStore {
   /**
    * Calculate content hash
    */
-  private hashContent(type: GitObjectType, content: Buffer): string {
+  private hashContent(type: ObjectType, content: Buffer): string {
     const header = Buffer.from(`${type} ${content.length}\0`);
     const fullContent = Buffer.concat([header, content]);
     return createHash('sha256').update(fullContent).digest('hex');
@@ -461,11 +461,11 @@ export class GitObjectStore {
       
       const size = parseInt(content.subarray(secondSpaceIndex + 1, nullIndex).toString('utf8'), 10);
       
-      // 读取哈希（32字节）
+      // Read hash (32 bytes)
       if (nullIndex + 32 > content.length) break;
       const hash = content.subarray(nullIndex + 1, nullIndex + 33).toString('hex');
       
-      // 根据模式确定类型
+      // Determine type based on mode
       const type = (mode & 0o170000) === 0o040000 ? 'tree' : 'blob';
       
       entries.push({
@@ -488,10 +488,8 @@ export class GitObjectStore {
   private serializeCommit(commit: Omit<CommitObject, 'type' | 'hash' | 'size'>): Buffer {
     let content = `tree ${commit.tree}\n`;
     
-    if (commit.parents) {
-      for (const parent of commit.parents) {
-        content += `parent ${parent}\n`;
-      }
+    if (commit.parent) {
+      content += `parent ${commit.parent}\n`;
     }
     
     content += `author ${commit.author}\n`;
@@ -508,7 +506,7 @@ export class GitObjectStore {
     const text = content.toString('utf8');
     const lines = text.split('\n');
     
-    const commit: any = { parents: [] };
+    const commit: any = { parent: null };
     let messageStart = -1;
     
     for (let i = 0; i < lines.length; i++) {
@@ -522,7 +520,7 @@ export class GitObjectStore {
       if (line.startsWith('tree ')) {
         commit.tree = line.substring(5);
       } else if (line.startsWith('parent ')) {
-        commit.parents.push(line.substring(7));
+        commit.parent = line.substring(7);
       } else if (line.startsWith('author ')) {
         commit.author = line.substring(7);
       } else if (line.startsWith('timestamp ')) {
@@ -544,12 +542,12 @@ export class GitObjectStore {
  * Directory scanner - build Tree objects
  */
 export class DirectoryTreeBuilder {
-  private objectStore: GitObjectStore;
+  private objectStore: ObjectStore;
   private ignorePatterns: string[];
   private maxFileSize: number;
 
   constructor(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     ignorePatterns: string[] = [],
     maxFileSize = 100 * 1024 * 1024
   ) {
@@ -593,7 +591,7 @@ export class DirectoryTreeBuilder {
             continue;
           }
           
-          // 存储文件内容
+          // Store file content
           const content = await fs.readFile(itemPath);
           const hash = await this.objectStore.storeBlob(content);
           
@@ -605,11 +603,11 @@ export class DirectoryTreeBuilder {
             size: stat.size
           });
         } else if (item.isDirectory()) {
-          // 递归处理子目录
+          // Recursively process subdirectories
           const subEntries = await this.scanDirectory(itemPath);
           
-          // 跳过空目录以匹配Git行为
-          // Git不跟踪空目录，只有包含文件或子目录的目录才会被跟踪
+          // Skip empty directories to match Git behavior
+          // Git doesn't track empty directories, only directories containing files or subdirectories
           if (subEntries.length === 0) {
             continue;
           }
@@ -634,37 +632,37 @@ export class DirectoryTreeBuilder {
   }
 
   /**
-   * 检查是否应该忽略文件 - 使用 micromatch 进行标准 glob 模式匹配
+   * Check if file should be ignored - uses micromatch for standard glob pattern matching
    */
   private shouldIgnore(relativePath: string): boolean {
     if (this.ignorePatterns.length === 0) {
       return false;
     }
     
-    // 使用 micromatch 进行标准 glob 模式匹配
-    // 支持标准的 gitignore 模式如：
-    // - *.ts (所有 TypeScript 文件)
-    // - src/**/*.js (src 目录下的所有 JavaScript 文件)
-    // - node_modules/** (node_modules 目录下的所有文件)
-    // - !important.js (排除特定文件)
+    // Use micromatch for standard glob pattern matching
+    // Supports standard gitignore patterns like:
+    // - *.ts (all TypeScript files)
+    // - src/**/*.js (all JavaScript files in src directory)
+    // - node_modules/** (all files in node_modules directory)
+    // - !important.js (exclude specific files)
     try {
       return micromatch.isMatch(relativePath, this.ignorePatterns, {
-        dot: true,  // 匹配以 . 开头的文件
-        matchBase: true,  // 匹配基础名称
-        nobrace: false,  // 启用 brace expansion
-        nocase: false,  // 区分大小写
-        noext: false,  // 启用 extglob
-        strictSlashes: false  // 不严格匹配斜杠
+        dot: true,  // Match files starting with .
+        matchBase: true,  // Match base names
+        nobrace: false,  // Enable brace expansion
+        nocase: false,  // Case sensitive
+        noext: false,  // Enable extglob
+        strictSlashes: false  // Don't strictly match slashes
       });
     } catch (error) {
-      // 如果模式匹配失败，记录错误并回退到简单匹配
+      // If pattern matching fails, log error and fallback to simple matching
       console.warn(`Error matching ignore pattern for ${relativePath}:`, error);
       return this.fallbackShouldIgnore(relativePath);
     }
   }
   
   /**
-   * 回退的简单模式匹配（用于 micromatch 失败的情况）
+   * Fallback simple pattern matching (for micromatch failures)
    */
   private fallbackShouldIgnore(relativePath: string): boolean {
     return this.ignorePatterns.some(pattern => {

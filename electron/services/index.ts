@@ -7,9 +7,9 @@ export * from './claude-cli-service.js';
 // Database Service
 export * from './database-service.js';
 
-// Git Services
-export * from './git-checkpoint-service.js';
-export * from './git-objects-service.js';
+// Checkpoint Services
+export * from './checkpoint-service.js';
+export * from './object-storage-service.js';
 
 // Process Service
 export * from './process-service.js';

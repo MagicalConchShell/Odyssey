@@ -9,9 +9,9 @@ import {
   MoreHorizontal,
   Loader2,
   AlertTriangle,
-  GitMerge,
   Copy,
-  GitBranch as GitBranchIcon
+  Zap,
+  Shield
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -25,12 +25,12 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DiffViewer } from '../editor/DiffViewer'
 import { FileContentDiff } from '../editor/FileContentDiff'
-import type { GitCheckpointInfo, TimelineTreeNode, ConnectionLine, BranchInfo, FileDiff, GitHistory, GitCommit, GitBranch } from '@/types/checkpoint'
+import type { CheckpointInfo, TimelineTreeNode, ConnectionLine, FileDiff } from '@/types/checkpoint'
 
-// Branch color system (similar to GitFork color scheme)
-import { calculateGitGraphLayout } from './lib/git-graph-layout';
+// Import the simplified layout algorithm
+import { calculateGitGraphLayout } from './lib/checkpoint-layout';
 
-interface GitTimelineTreeProps {
+interface CheckpointTimelineProps {
   projectPath: string
   compact?: boolean
   onCheckpointRestore?: (commitHash: string) => Promise<void>
@@ -38,32 +38,33 @@ interface GitTimelineTreeProps {
   className?: string
 }
 
-export interface GitTimelineTreeRef {
+export interface CheckpointTimelineRef {
   refreshTimeline: () => Promise<void>
 }
 
-// Constants for layout (should match git-graph-layout.ts)
-const NODE_HEIGHT = 48; // Height of each commit node in pixels
-const COLUMN_WIDTH = 32; // Width of each branch column in pixels
-const NODE_RADIUS = 4; // Radius of the commit circle
+// Constants for layout (simplified for linear timeline)
+const NODE_HEIGHT = 48; // Height of each checkpoint node in pixels
+const COLUMN_WIDTH = 32; // Width of the single column in pixels
+const NODE_RADIUS = 4; // Radius of the checkpoint circle
 
 /**
- * Git-style timeline tree component
- * Similar to GitFork's branch view, using vertical lines and nodes to display checkpoints
+ * Simplified checkpoint timeline component
+ * Displays checkpoints in a clean, linear timeline view
  */
-export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreeProps>(({ projectPath, compact = false, onCheckpointRestore, onCheckpointDelete, className }, ref) => {
-  const [checkpoints, setCheckpoints] = useState<GitCheckpointInfo[]>([])
-  const [branches, setBranches] = useState<BranchInfo[]>([])
-  const [currentRef, setCurrentRef] = useState<string | null>(null) // Can be a branch name or a detached commit hash
-  const [isDetachedHead, setIsDetachedHead] = useState(false)
+export const CheckpointTimeline = forwardRef<CheckpointTimelineRef, CheckpointTimelineProps>(({ projectPath, compact = false, onCheckpointRestore, onCheckpointDelete, className }, ref) => {
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([])
+  const [currentRef, setCurrentRef] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showRestoreDialog, setShowRestoreDialog] = useState(false)
+  const [showResetDialog, setShowResetDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [selectedCheckpoint, setSelectedCheckpoint] = useState<GitCheckpointInfo | null>(null)
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<CheckpointInfo | null>(null)
+  const [resetConfirmText, setResetConfirmText] = useState('')
   const [treeNodes, setTreeNodes] = useState<TimelineTreeNode[]>([])
   const [connectionLines, setConnectionLines] = useState<ConnectionLine[]>([])
-  const [maxColumns, setMaxColumns] = useState(0); // New state for max columns
+  // maxColumns is always 1 for linear timeline, but keeping for compatibility
+  const [, setMaxColumns] = useState(0)
   const [showFileChangesDialog, setShowFileChangesDialog] = useState(false)
   const [fileChanges, setFileChanges] = useState<FileDiff[] | null>(null)
   const [showFileContentDiff, setShowFileContentDiff] = useState(false)
@@ -71,12 +72,12 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
   const [restorePreviewDiffs, setRestorePreviewDiffs] = useState<FileDiff[] | null>(null)
   const [loadingRestorePreview, setLoadingRestorePreview] = useState(false)
 
-  // Memoized graph layout calculation for performance
+  // Memoized graph layout calculation for performance (now much simpler!)
   const { layoutNodes, layoutConnections, calculatedMaxColumns } = useMemo(() => {
     if (checkpoints.length > 0) {
       const { nodes, connections, maxColumns } = calculateGitGraphLayout(
         checkpoints,
-        branches,
+        [],
         currentRef
       );
       return { 
@@ -90,7 +91,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
       layoutConnections: [], 
       calculatedMaxColumns: 0 
     };
-  }, [checkpoints, branches, currentRef]);
+  }, [checkpoints, currentRef]);
   
   // Update state when layout changes
   useEffect(() => {
@@ -99,89 +100,52 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
     setMaxColumns(calculatedMaxColumns);
   }, [layoutNodes, layoutConnections, calculatedMaxColumns]);
 
-  // Load history (memoized with performance optimization)
+  // Load history (simplified - no complex branch logic needed)
   const loadHistory = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       
       const startTime = performance.now()
-      const historyResult = await window.electronAPI.gitCheckpoint.getHistory(projectPath)
-      const branchesResult = await window.electronAPI.gitCheckpoint.listBranches(projectPath)
+      const historyResult = await window.electronAPI.checkpoint.getHistory(projectPath)
 
-      if (historyResult.success && branchesResult.success) {
-        // FIX: Correctly access the data property
-        const historyData = (historyResult.data as unknown as GitHistory)?.commits || [];
-        const branchesData = (branchesResult.data as unknown as GitBranch[]) || [];
+      if (historyResult.success) {
+        const checkpointData = historyResult.data || [];
         
-        // Convert GitBranch[] to BranchInfo[]
-        const branchInfoData: BranchInfo[] = branchesData.map(branch => ({
-          name: branch.name,
-          commitHash: branch.hash
-        }));
-
-        // Map GitCommit to GitCheckpointInfo
-        const mappedCheckpoints: GitCheckpointInfo[] = historyData.map((commit: GitCommit) => ({
-          hash: commit.hash,
-          description: commit.message,
-          author: commit.author,
-          timestamp: commit.date,
-          parents: commit.parents,
-          treeHash: commit.hash, // Use commit hash as tree hash fallback
-        }));
-        
-        // Performance optimization: limit displayed commits for very large histories
-        const MAX_DISPLAYED_COMMITS = 1000;
-        const displayedCheckpoints = mappedCheckpoints.length > MAX_DISPLAYED_COMMITS 
-          ? mappedCheckpoints.slice(0, MAX_DISPLAYED_COMMITS)
-          : mappedCheckpoints;
+        // Performance optimization: limit displayed checkpoints for very large histories
+        const MAX_DISPLAYED_CHECKPOINTS = 1000;
+        const displayedCheckpoints = checkpointData.length > MAX_DISPLAYED_CHECKPOINTS 
+          ? checkpointData.slice(0, MAX_DISPLAYED_CHECKPOINTS)
+          : checkpointData;
         
         setCheckpoints(displayedCheckpoints)
-        setBranches(branchInfoData)
         
-        // Detect current HEAD state
-        if (mappedCheckpoints.length > 0 && branchInfoData.length > 0) {
-          const currentCommit = mappedCheckpoints[0] // Most recent commit
-          const currentBranch = branchInfoData.find((branch: BranchInfo) => branch.commitHash === currentCommit.hash)
-          
-          if (currentBranch) {
-            // We're on a branch
-            setCurrentRef(currentBranch.name)
-            setIsDetachedHead(false)
-          } else {
-            // We're in detached HEAD state
-            setCurrentRef(currentCommit.hash)
-            setIsDetachedHead(true)
-          }
+        // Set current checkpoint (most recent)
+        if (displayedCheckpoints.length > 0) {
+          const currentCheckpoint = displayedCheckpoints[0] // Most recent checkpoint
+          setCurrentRef(currentCheckpoint.hash)
         } else {
           setCurrentRef(null)
-          setIsDetachedHead(false)
         }
         
         // Log performance metrics
         const loadTime = performance.now() - startTime
         if (loadTime > 1000) {
-          console.warn(`Timeline loading took ${loadTime.toFixed(2)}ms for ${mappedCheckpoints.length} commits`)
+          console.warn(`Timeline loading took ${loadTime.toFixed(2)}ms for ${checkpointData.length} checkpoints`)
         }
         
         // Show warning for large histories
-        if (mappedCheckpoints.length > MAX_DISPLAYED_COMMITS) {
-          console.warn(`Large history detected: showing ${MAX_DISPLAYED_COMMITS} of ${mappedCheckpoints.length} commits`)
+        if (checkpointData.length > MAX_DISPLAYED_CHECKPOINTS) {
+          console.warn(`Large history detected: showing ${MAX_DISPLAYED_CHECKPOINTS} of ${checkpointData.length} checkpoints`)
         }
       } else {
-        // Ensure arrays are set even on error
         setCheckpoints([])
-        setBranches([])
         setCurrentRef(null)
-        setIsDetachedHead(false)
-        setError(historyResult.error || branchesResult.error || 'Failed to load history')
+        setError(historyResult.error || 'Failed to load history')
       }
     } catch (err: any) {
-      // Ensure arrays are set even on exception
       setCheckpoints([])
-      setBranches([])
       setCurrentRef(null)
-      setIsDetachedHead(false)
       setError(err.message || 'Unknown error occurred')
     } finally {
       setLoading(false)
@@ -207,7 +171,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
       if (onCheckpointRestore) {
         await onCheckpointRestore(selectedCheckpoint.hash)
       } else {
-        const result = await window.electronAPI.gitCheckpoint.checkout(projectPath, selectedCheckpoint.hash)
+        const result = await window.electronAPI.checkpoint.checkout(projectPath, selectedCheckpoint.hash)
         if (!result.success) {
           throw new Error(result.error || 'Failed to restore checkpoint')
         }
@@ -222,7 +186,35 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
     }
   }
 
-  // Delete checkpoint - DISABLED due to complexity and safety concerns
+  // Reset to checkpoint handler (destructive, truncates history)
+  const handleResetToCheckpoint = async () => {
+    if (!selectedCheckpoint) return
+    
+    // Validate confirmation text
+    if (resetConfirmText !== 'RESET') {
+      setError('Please type "RESET" to confirm this destructive operation')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const result = await window.electronAPI.checkpoint.resetToCheckpoint(projectPath, selectedCheckpoint.hash)
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to reset to checkpoint')
+      }
+      
+      setShowResetDialog(false)
+      setSelectedCheckpoint(null)
+      setResetConfirmText('')
+      await loadHistory()
+    } catch (err: any) {
+      setError(err.message || 'Failed to reset to checkpoint')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Delete checkpoint - SAFE implementation (only supports deleting latest checkpoint)
   const handleDeleteCheckpoint = async () => {
     if (!selectedCheckpoint) return
 
@@ -231,16 +223,10 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
       if (onCheckpointDelete) {
         await onCheckpointDelete(selectedCheckpoint.hash)
       } else {
-        // SAFETY: Deleting commits is a complex and potentially dangerous operation
-        // in Git-like systems. It requires careful handling of:
-        // 1. Reference updates (branches pointing to deleted commits)
-        // 2. Parent-child relationships (orphaned commits)
-        // 3. Garbage collection
-        // 4. History rewriting
-        // 
-        // This feature is disabled until a proper implementation is available
-        // that handles all these cases safely.
-        throw new Error('Checkpoint deletion is not currently supported for safety reasons. This feature requires a more sophisticated implementation to handle Git-like commit relationships safely.')
+        const result = await window.electronAPI.checkpoint.deleteCheckpoint(projectPath, selectedCheckpoint.hash)
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to delete checkpoint')
+        }
       }
       setShowDeleteDialog(false)
       setSelectedCheckpoint(null)
@@ -259,17 +245,16 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
       setError(null)
       
       // Show only changes in this checkpoint
-      const result = await window.electronAPI.gitCheckpoint.getCheckpointChanges(projectPath, commitHash)
+      const result = await window.electronAPI.checkpoint.getCheckpointChanges(projectPath, commitHash)
       if (result.success) {
         if (result.data) {
-          // Parse serialized files if available, otherwise use direct files (for backward compatibility or direct calls)
+          // Parse serialized files if available, otherwise use direct files
           const diffFiles: FileDiff[] = result.data.serializedFiles 
             ? JSON.parse(result.data.serializedFiles) 
             : (result.data.files || []);
 
           setFileChanges(diffFiles)
         } else {
-          // No changes found - set empty array
           setFileChanges([])
         }
       } else {
@@ -292,10 +277,10 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
 
   // Load restore preview when restore dialog is opened
   useEffect(() => {
-    if (showRestoreDialog && selectedCheckpoint) {
+    if ((showRestoreDialog || showResetDialog) && selectedCheckpoint) {
       loadRestorePreview(selectedCheckpoint.hash)
     }
-  }, [showRestoreDialog, selectedCheckpoint])
+  }, [showRestoreDialog, showResetDialog, selectedCheckpoint])
 
   // Format file size
   const formatFileSize = (bytes: number): string => {
@@ -316,16 +301,16 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
     setRestorePreviewDiffs(null)
     
     try {
-      // Get current HEAD reference
-      const currentResult = await window.electronAPI.gitCheckpoint.getHistory(projectPath, 'HEAD')
+      // Get current checkpoint reference
+      const currentResult = await window.electronAPI.checkpoint.getHistory(projectPath)
       if (!currentResult.success || !currentResult.data || currentResult.data.length === 0) {
-        throw new Error('Could not get current HEAD reference')
+        throw new Error('Could not get current checkpoint reference')
       }
       
       const currentRef = currentResult.data[0].hash
       
-      // Get diff between current HEAD and target checkpoint
-      const diffResult = await window.electronAPI.gitCheckpoint.getFileDiff(projectPath, currentRef, targetRef)
+      // Get diff between current checkpoint and target checkpoint
+      const diffResult = await window.electronAPI.checkpoint.getFileDiff(projectPath, currentRef, targetRef)
       if (diffResult.success && diffResult.data) {
         const diffFiles: FileDiff[] = diffResult.data.serializedFiles 
           ? JSON.parse(diffResult.data.serializedFiles) 
@@ -348,7 +333,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
       <div className={cn("flex items-center justify-center p-8", className)}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-sm text-gray-600">Loading history...</p>
+          <p className="text-sm text-gray-600">Loading checkpoints...</p>
         </div>
       </div>
     )
@@ -368,104 +353,48 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
   return (
     <TooltipProvider>
       <div className={cn("relative", className)}>
-        {/* Detached HEAD Warning */}
-        {isDetachedHead && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg"
-          >
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                  Detached HEAD State
-                </p>
-                <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                  You are not on any branch. Create a new branch to save your work, or checkout an existing branch.
-                </p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-        
-        {/* Git-style branch tree */}
-        <div className="relative" style={{ minHeight: treeNodes.length * (compact ? 36 : 52) + 72, paddingTop: '24px' }}>
-          {/* SVG connection lines */}
+        {/* Checkpoint timeline - simplified linear view */}
+        <div className="relative" style={{ minHeight: treeNodes.length * (compact ? 36 : 52) + 48 }}>
+          {/* Simple SVG connection lines - no complex curves needed */}
           <svg
             className="absolute pointer-events-none z-[5]"
             style={{ 
-              left: '12px', // Match node positioning offset
+              left: '12px',
               top: 0,
-              width: `calc(100% - 12px + ${maxColumns * COLUMN_WIDTH + 24}px)`, // Account for left offset
+              width: `100%`,
               height: '100%',
-              minWidth: 'calc(100% - 12px)'
             }}
           >
-            {/* Debug: SVG boundary visualization */}
-            <rect
-              x="0"
-              y="24"
-              width="calc(100% - 12px)"
-              height="calc(100% - 24px)"
-              fill="none"
-              stroke="rgba(255,0,0,0.1)"
-              strokeWidth="1"
-              strokeDasharray="5,5"
-            />
-            
-            {Array.isArray(connectionLines) && connectionLines.map((line, index) => (
-              <g key={index}>
-                {/* Debug: Connection line endpoints */}
-                <circle
-                  cx={line.from.columnIndex * COLUMN_WIDTH + NODE_RADIUS + NODE_RADIUS / 2}
-                  cy={line.from.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2 + 24}
-                  r="2"
-                  fill="rgba(255,0,0,0.5)"
-                />
-                <circle
-                  cx={line.to.columnIndex * COLUMN_WIDTH + NODE_RADIUS + NODE_RADIUS / 2}
-                  cy={line.to.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2 + 24}
-                  r="2"
-                  fill="rgba(0,255,0,0.5)"
-                />
-                
-                {/* Actual connection line */}
-                <path
-                  d={line.pathData}
-                  stroke={line.color || '#6b7280'} // Fallback to gray if no color
-                  strokeWidth={Math.max(line.strokeWidth, 3)} // Ensure minimum visibility
-                  fill="none"
-                  strokeDasharray={line.type === 'merge' ? '5,5' : undefined}
-                  className="transition-all duration-200"
-                  style={{
-                    filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.5))', // Stronger shadow for better visibility
-                    opacity: 0.9, // Slightly transparent for better visual integration
-                  }}
-                  strokeLinecap="round" // Smoother line endings
-                  strokeLinejoin="round" // Smoother line joints
-                />
-              </g>
+            {connectionLines.map((line, index) => (
+              <line
+                key={index}
+                x1={line.from.columnIndex * COLUMN_WIDTH + NODE_RADIUS + NODE_RADIUS / 2}
+                y1={line.from.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2 + 24}
+                x2={line.to.columnIndex * COLUMN_WIDTH + NODE_RADIUS + NODE_RADIUS / 2}
+                y2={line.to.rowIndex * NODE_HEIGHT + NODE_HEIGHT / 2 + 24}
+                stroke={line.color}
+                strokeWidth={line.strokeWidth}
+                className="transition-all duration-200"
+              />
             ))}
           </svg>
           
-          {/* Checkpoint nodes with performance optimization */}
+          {/* Checkpoint nodes - simplified without merge commit complexity */}
           <div className="relative z-[10]">
-            {Array.isArray(treeNodes) && treeNodes.map((node, index) => (
+            {treeNodes.map((node, index) => (
               <motion.div
                 key={node.checkpoint.hash}
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ 
-                  delay: Math.min(index * 0.02, 0.5), // Limit animation delay for performance
+                  delay: Math.min(index * 0.02, 0.5),
                   duration: 0.2 
                 }}
                 className="absolute group cursor-pointer"
                 style={{
-                  left: node.columnIndex * COLUMN_WIDTH + 12, // Add offset to prevent overlap with buttons
-                  top: node.rowIndex * NODE_HEIGHT + 24, // Account for top padding
-                  width: `calc(100% - ${node.columnIndex * COLUMN_WIDTH + 12}px)`, // Adjust width to fill remaining space
+                  left: node.columnIndex * COLUMN_WIDTH + 12,
+                  top: node.rowIndex * NODE_HEIGHT + 24,
+                  width: `calc(100% - ${node.columnIndex * COLUMN_WIDTH + 12}px)`,
                   height: `${NODE_HEIGHT}px`
                 }}
                 onClick={() => {
@@ -473,65 +402,37 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                   setShowFileChangesDialog(true)
                 }}
               >
-                {/* Git-style commit row */}
+                {/* Simplified checkpoint row */}
                 <div className="flex items-center w-full h-full hover:bg-accent/50 rounded-md transition-colors relative">
-                  {/* Background for better contrast with connection lines - only on hover and only for text area */}
-                  <div 
-                    className="absolute rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-[1]"
-                    style={{
-                      left: `${NODE_RADIUS + 20}px`, // Start after the node circle
-                      top: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: 'rgba(255,255,255,0.8)',
-                    }}
-                  />
-                  {/* Node circle/square */}
+                  {/* Simple checkpoint circle (no merge commit squares) */}
                   <div
                     className={cn(
                       "relative flex items-center justify-center transition-all duration-200 flex-shrink-0 z-[15]",
-                      node.isMergeCommit 
-                        ? "w-4 h-4 rounded-sm border-2" // Square for merge commits
-                        : "w-3 h-3 rounded-full border-2", // Circle for regular commits
+                      "w-3 h-3 rounded-full border-2", // Always circle for consistency
                       node.isCurrent 
                         ? "bg-current border-current shadow-lg" 
                         : "bg-background border-current group-hover:scale-150"
                     )}
                     style={{
-                      marginLeft: NODE_RADIUS, // Offset for node circle
-                      borderColor: node.branchColor,
-                      backgroundColor: node.isCurrent ? node.branchColor : 'white',
-                      boxShadow: node.isCurrent ? `0 0 15px ${node.branchColor}40` : `0 0 0 1px white, 0 0 0 2px ${node.branchColor}`,
-                      position: 'relative',
+                      marginLeft: NODE_RADIUS,
+                      borderColor: node.timelineColor,
+                      backgroundColor: node.isCurrent ? node.timelineColor : 'white',
+                      boxShadow: node.isCurrent ? `0 0 15px ${node.timelineColor}40` : `0 0 0 1px white, 0 0 0 2px ${node.timelineColor}`,
                     }}
                   >
-                    {node.isMergeCommit && (
-                      <GitMerge className="w-2 h-2 text-current" style={{ color: node.branchColor }} />
-                    )}
-                    
-                    {/* Enhanced indicator for merge commits */}
-                    {node.isMergeCommit && (
-                      <div 
-                        className="absolute inset-0 rounded-sm border-2 border-dashed opacity-30"
-                        style={{ borderColor: node.branchColor }}
-                      />
-                    )}
                     {node.isCurrent && (
                       <div 
-                        className={cn(
-                          "absolute inset-0 animate-ping opacity-75",
-                          node.isMergeCommit ? "rounded-sm" : "rounded-full"
-                        )}
-                        style={{ backgroundColor: node.branchColor }}
+                        className="absolute inset-0 animate-ping opacity-75 rounded-full"
+                        style={{ backgroundColor: node.timelineColor }}
                       />
                     )}
                   </div>
                   
-                  {/* Git-style commit info */}
+                  {/* Checkpoint info - simplified without Git terminology */}
                   <div className="flex-1 ml-3 min-w-0 relative z-[12]">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
-                        {/* Commit hash and description */}
+                        {/* Checkpoint description and metadata */}
                         <div className="flex items-center gap-2 mb-1">
                           <div className={cn(
                             "text-sm font-medium truncate transition-colors cursor-pointer",
@@ -543,52 +444,20 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                             e.stopPropagation()
                             navigator.clipboard.writeText(node.checkpoint.description)
                           }}
-                          title="Click to copy commit message"
+                          title="Click to copy checkpoint description"
                           >
                             {node.checkpoint.description}
                           </div>
                           
-                          {/* Git-style indicators */}
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {node.isMergeCommit && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                                    <GitMerge className="w-3 h-3 mr-1" />
-                                    merge ({node.checkpoint.parents.length})
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <div className="space-y-2">
-                                    <p>Merge commit with {node.checkpoint.parents.length} parents</p>
-                                    <div className="space-y-1">
-                                      <p className="text-xs text-muted-foreground">Parents:</p>
-                                      {Array.isArray(node.checkpoint.parents) && node.checkpoint.parents.map((parent, idx) => (
-                                        <div key={idx} className="flex items-center gap-2">
-                                          <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
-                                            {parent.substring(0, 7)}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {idx === 0 ? '(main parent)' : '(merged branch)'}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            
-                            {node.isCurrent && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                <GitBranchIcon className="w-3 h-3 mr-1" />
-                                {isDetachedHead ? "HEAD" : "HEAD"}
-                              </span>
-                            )}
-                          </div>
+                          {/* Current checkpoint indicator */}
+                          {node.isCurrent && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                              Current
+                            </span>
+                          )}
                         </div>
                         
-                        {/* Git-style metadata */}
+                        {/* Checkpoint metadata */}
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <span className="font-mono text-xs">{node.checkpoint.hash.substring(0, 7)}</span>
@@ -600,7 +469,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                                 e.stopPropagation()
                                 navigator.clipboard.writeText(node.checkpoint.hash)
                               }}
-                              title="Copy commit hash"
+                              title="Copy checkpoint hash"
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
@@ -613,7 +482,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                         </div>
                       </div>
                       
-                      {/* Git-style action buttons */}
+                      {/* Action buttons */}
                       <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                         {!node.isCurrent && (
                           <Tooltip>
@@ -634,7 +503,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>{node.isMergeCommit ? 'Checkout merge commit' : 'Checkout this commit'}</p>
+                              <p>Restore to this checkpoint</p>
                             </TooltipContent>
                           </Tooltip>
                         )}
@@ -669,59 +538,60 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                               }}
                             >
                               <Copy className="h-4 w-4 mr-2" />
-                              Copy commit hash
+                              Copy checkpoint hash
                             </DropdownMenuItem>
                             
                             <DropdownMenuItem
                               onClick={(e) => {
                                 e.stopPropagation()
-                                const message = `${node.checkpoint.description}\n\nCommit: ${node.checkpoint.hash}\nDate: ${new Date(node.checkpoint.timestamp).toLocaleString()}`
+                                const message = `${node.checkpoint.description}\n\nCheckpoint: ${node.checkpoint.hash}\nDate: ${new Date(node.checkpoint.timestamp).toLocaleString()}`
                                 navigator.clipboard.writeText(message)
                               }}
                             >
                               <Copy className="h-4 w-4 mr-2" />
-                              Copy commit info
+                              Copy checkpoint info
                             </DropdownMenuItem>
                             
                             {!node.isCurrent && (
-                              <DropdownMenuItem
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (onCheckpointRestore) {
+                              <>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (onCheckpointRestore) {
+                                      setSelectedCheckpoint(node.checkpoint)
+                                      setShowRestoreDialog(true)
+                                    }
+                                  }}
+                                >
+                                  <RotateCcw className="h-4 w-4 mr-2" />
+                                  Restore (safe)
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation()
                                     setSelectedCheckpoint(node.checkpoint)
-                                    setShowRestoreDialog(true)
-                                  }
-                                }}
-                              >
-                                <RotateCcw className="h-4 w-4 mr-2" />
-                                Checkout
-                              </DropdownMenuItem>
+                                    setShowResetDialog(true)
+                                  }}
+                                  className="text-orange-600 dark:text-orange-400"
+                                >
+                                  <Zap className="h-4 w-4 mr-2" />
+                                  Reset here (destructive)
+                                </DropdownMenuItem>
+                              </>
                             )}
                             
                             <DropdownMenuItem
                               onClick={(e) => {
                                 e.stopPropagation()
-                                // TODO: Implement create branch from this commit
-                                console.log('Create branch from:', node.checkpoint.hash)
-                              }}
-                            >
-                              <GitBranchIcon className="h-4 w-4 mr-2" />
-                              Create branch from here
-                            </DropdownMenuItem>
-                            
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (onCheckpointDelete) {
-                                  setSelectedCheckpoint(node.checkpoint)
-                                  setShowDeleteDialog(true)
-                                }
+                                setSelectedCheckpoint(node.checkpoint)
+                                setShowDeleteDialog(true)
                               }}
                               className="text-destructive"
-                              disabled={node.isCurrent}
+                              disabled={node.isCurrent || node !== treeNodes[0]}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Delete commit
+                              {node === treeNodes[0] ? 'Delete latest checkpoint' : 'Cannot delete (not latest)'}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -730,7 +600,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                   </div>
                 </div>
                 
-                {/* Git-style detailed tooltip */}
+                {/* Simplified tooltip */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="absolute inset-0" />
@@ -740,7 +610,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                       <div>
                         <p className="font-medium text-sm">{node.checkpoint.description}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-muted-foreground">commit</span>
+                          <span className="text-xs text-muted-foreground">checkpoint</span>
                           <span className="text-xs font-mono bg-muted px-1 py-0.5 rounded">
                             {node.checkpoint.hash.substring(0, 12)}
                           </span>
@@ -748,35 +618,24 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                       </div>
                       
                       <div className="text-xs text-muted-foreground space-y-2">
-                        
                         <div className="flex items-center gap-2">
                           <Clock className="w-3 h-3 flex-shrink-0" />
                           <span>{new Date(node.checkpoint.timestamp).toLocaleString()}</span>
                         </div>
                         
-                        <div className="flex items-center gap-2">
-                          <GitBranchIcon className="w-3 h-3 flex-shrink-0" />
-                          <span>Branch: </span>
-                          <span className="font-mono bg-muted px-1 py-0.5 rounded text-xs">{node.branchName}</span>
-                        </div>
-                        
-                        {node.checkpoint.parents.length > 0 && (
+                        {node.checkpoint.parent && (
                           <div className="flex items-start gap-2">
-                            <span className="text-muted-foreground mt-0.5">Parents:</span>
-                            <div className="flex flex-col gap-1">
-                              {node.checkpoint.parents.map((parent, idx) => (
-                                <span key={idx} className="font-mono text-xs">
-                                  {parent.substring(0, 7)}
-                                </span>
-                              ))}
-                            </div>
+                            <span className="text-muted-foreground mt-0.5">Parent:</span>
+                            <span className="font-mono text-xs">
+                              {node.checkpoint.parent.substring(0, 7)}
+                            </span>
                           </div>
                         )}
                       </div>
                       
                       <div className="pt-2 border-t border-border">
                         <p className="text-xs text-muted-foreground">
-                          Click to view changes • Right-click for git operations
+                          Click to view changes • Right-click for operations
                         </p>
                       </div>
                     </div>
@@ -791,9 +650,12 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
         <Dialog open={showRestoreDialog} onOpenChange={setShowRestoreDialog}>
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
-              <DialogTitle>Restore Checkpoint</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-green-600" />
+                Safe Restore Checkpoint
+              </DialogTitle>
               <DialogDescription>
-                This will replace your current project files with the checkpoint state.
+                This will replace your current project files with the checkpoint state without deleting history.
                 A backup will be created automatically before restoration.
               </DialogDescription>
             </DialogHeader>
@@ -877,6 +739,142 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
           </DialogContent>
         </Dialog>
 
+        {/* Reset to checkpoint dialog (destructive) */}
+        <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Zap className="h-5 w-5 text-orange-600" />
+                Reset to Checkpoint (Destructive)
+              </DialogTitle>
+              <DialogDescription>
+                <strong className="text-orange-600">⚠️ WARNING:</strong> This will permanently delete all checkpoints after this one and cannot be undone.
+                Your project files will be restored to this checkpoint state.
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedCheckpoint && (
+              <div className="space-y-4">
+                <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-md p-3">
+                  <h4 className="font-medium text-orange-900 dark:text-orange-100">{selectedCheckpoint.description}</h4>
+                  <p className="text-sm text-orange-700 dark:text-orange-300">
+                    Created {formatDistanceToNow(new Date(selectedCheckpoint.timestamp))} ago
+                  </p>
+                  <p className="text-sm text-orange-700 dark:text-orange-300 font-mono">
+                    {selectedCheckpoint.hash.substring(0, 12)}
+                  </p>
+                </div>
+
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-red-900 dark:text-red-100">This operation will:</h4>
+                      <ul className="text-sm text-red-700 dark:text-red-300 space-y-1 list-disc ml-4">
+                        <li><strong>Permanently delete</strong> all checkpoints created after this one</li>
+                        <li><strong>Truncate history</strong> - these checkpoints cannot be recovered</li>
+                        <li><strong>Reset your files</strong> to exactly match this checkpoint state</li>
+                        <li><strong>Create an automatic backup</strong> before proceeding</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Automatic Backup Protection</span>
+                  </div>
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                    Your current state will be automatically backed up before any changes are made.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    Type <span className="font-mono bg-muted px-1 rounded">RESET</span> to confirm this destructive operation:
+                  </label>
+                  <input
+                    type="text"
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value.toUpperCase())}
+                    placeholder="Type RESET to confirm"
+                    className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="flex-1 overflow-hidden">
+                  <h4 className="font-medium mb-2">Changes Preview:</h4>
+                  {loadingRestorePreview ? (
+                    <div className="flex items-center justify-center h-32">
+                      <div className="text-center">
+                        <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">Loading changes preview...</p>
+                      </div>
+                    </div>
+                  ) : restorePreviewDiffs ? (
+                    <div className="border rounded-lg bg-background h-full overflow-hidden">
+                      {restorePreviewDiffs.length > 0 ? (
+                        <DiffViewer
+                          diffs={restorePreviewDiffs}
+                          onFileClick={handleFileClick}
+                          formatFileSize={formatFileSize}
+                          showFileInfo={true}
+                          className="p-2 h-full overflow-auto max-h-48"
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-32">
+                          <div className="text-center">
+                            <FileText className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+                            <p className="text-sm text-muted-foreground">No changes will be made</p>
+                            <p className="text-xs text-muted-foreground">Current state matches target checkpoint</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border rounded-lg bg-background h-32 flex items-center justify-center">
+                      <p className="text-sm text-muted-foreground">Failed to load changes preview</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            <DialogFooter className="mt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowResetDialog(false)
+                  setResetConfirmText('')
+                }}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleResetToCheckpoint}
+                disabled={loading || loadingRestorePreview || resetConfirmText !== 'RESET'}
+                variant="destructive"
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Resetting...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4 mr-2" />
+                    Reset & Delete History
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* File changes dialog */}
         <Dialog open={showFileChangesDialog} onOpenChange={setShowFileChangesDialog}>
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
@@ -946,19 +944,31 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
               <Button variant="outline" onClick={() => setShowFileChangesDialog(false)}>
                 Close
               </Button>
-              {selectedCheckpoint && !loading && (
-                <Button
-                  onClick={() => {
-                    if (onCheckpointRestore) {
+              {selectedCheckpoint && !loading && selectedCheckpoint.hash !== currentRef && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline" 
+                    onClick={() => {
+                      if (onCheckpointRestore) {
+                        setShowFileChangesDialog(false)
+                        setShowRestoreDialog(true)
+                      }
+                    }}
+                  >
+                    <Shield className="h-4 w-4 mr-2" />
+                    Safe Restore
+                  </Button>
+                  <Button
+                    onClick={() => {
                       setShowFileChangesDialog(false)
-                      setShowRestoreDialog(true)
-                    }
-                  }}
-                  disabled={selectedCheckpoint.hash === currentRef}
-                >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  Restore This Version
-                </Button>
+                      setShowResetDialog(true)
+                    }}
+                    className="bg-orange-600 hover:bg-orange-700"
+                  >
+                    <Zap className="h-4 w-4 mr-2" />
+                    Reset Here
+                  </Button>
+                </div>
               )}
             </DialogFooter>
           </DialogContent>
@@ -968,18 +978,47 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
         <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Delete Checkpoint</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-red-600" />
+                Delete Latest Checkpoint
+              </DialogTitle>
               <DialogDescription>
-                This action cannot be undone. The checkpoint will be permanently deleted.
+                This will permanently delete the latest checkpoint and reset your project to the previous state.
+                This action cannot be undone.
               </DialogDescription>
             </DialogHeader>
             
             {selectedCheckpoint && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                <h4 className="font-medium text-red-900">{selectedCheckpoint.description}</h4>
-                <p className="text-sm text-red-700">
-                  Created {formatDistanceToNow(new Date(selectedCheckpoint.timestamp))} ago
-                </p>
+              <div className="space-y-4">
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3">
+                  <h4 className="font-medium text-red-900 dark:text-red-100">{selectedCheckpoint.description}</h4>
+                  <p className="text-sm text-red-700 dark:text-red-300">
+                    Created {formatDistanceToNow(new Date(selectedCheckpoint.timestamp))} ago
+                  </p>
+                  <p className="text-sm text-red-700 dark:text-red-300 font-mono">
+                    {selectedCheckpoint.hash.substring(0, 12)}
+                  </p>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Safe Delete</span>
+                  </div>
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                    Only the latest checkpoint can be deleted. Your project will revert to the previous checkpoint state.
+                  </p>
+                </div>
+
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span className="text-sm font-medium text-amber-900 dark:text-amber-100">Automatic Backup</span>
+                  </div>
+                  <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                    A backup will be created automatically before deletion.
+                  </p>
+                </div>
               </div>
             )}
             
@@ -996,7 +1035,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
                 disabled={loading}
                 variant="destructive"
               >
-                {loading ? 'Deleting...' : 'Delete Checkpoint'}
+                {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : 'Delete Latest Checkpoint'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1006,7 +1045,7 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
         {selectedFileDiff && selectedCheckpoint && (
           <FileContentDiff
             projectPath={projectPath}
-            fromRef={selectedCheckpoint.parents[0] || '4b825dc642cb6eb9a060e54bf8d69288fbee4904'}
+            fromRef={selectedCheckpoint.parent || '4b825dc642cb6eb9a060e54bf8d69288fbee4904'}
             toRef={selectedCheckpoint.hash}
             fileDiff={selectedFileDiff}
             isOpen={showFileContentDiff}
@@ -1042,6 +1081,6 @@ export const GitTimelineTree = forwardRef<GitTimelineTreeRef, GitTimelineTreePro
   )
 })
 
-GitTimelineTree.displayName = 'GitTimelineTree'
+CheckpointTimeline.displayName = 'CheckpointTimeline'
 
-export default GitTimelineTree
+export default CheckpointTimeline

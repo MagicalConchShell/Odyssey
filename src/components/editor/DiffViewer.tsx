@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { ChevronDown, ChevronRight, Plus, Minus, Edit, ArrowRight, FileText, FolderOpen, Folder } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { FileDiff, DiffType } from '../../../electron/types/git-checkpoint'
+import { FileDiff, DiffType } from '../../../electron/types/checkpoint'
 
 export interface DiffViewerProps {
   diffs: FileDiff[]

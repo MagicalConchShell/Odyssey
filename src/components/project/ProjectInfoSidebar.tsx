@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 // Import timeline and file components
-import { GitTimelineTree, type GitTimelineTreeRef } from '../git-timeline/GitTimelineTree'
+import { CheckpointTimeline, type CheckpointTimelineRef } from '../checkpoint-timeline/CheckpointTimeline'
 import { FileTree } from '@/components/ui/FileTree'
 import { useFileTreeStore, TreeNode } from '@/components/ui/hooks/useFileTreeStore'
 
@@ -41,6 +41,7 @@ interface ProjectInfoSidebarProps {
   onCheckpointCreate?: (description: string) => Promise<void>
   onCheckpointRestore?: (commitHash: string) => Promise<void>
   onCheckpointDelete?: (commitHash: string) => Promise<void>
+  timelineRef?: React.RefObject<CheckpointTimelineRef>
   className?: string
 }
 
@@ -48,6 +49,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   project,
   projectPath,
   selectedCheckpoint: _selectedCheckpoint,
+  timelineRef,
   activeTab,
   onTabChange,
   onCheckpointCreate,
@@ -66,7 +68,7 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
   const [checkpointDescription, setCheckpointDescription] = useState('')
   
   // Timeline ref
-  const timelineTreeRef = useRef<GitTimelineTreeRef>(null)
+  const timelineTreeRef = useRef<CheckpointTimelineRef>(null)
   
   // Ref to hold the latest loadProjectFiles function
   const loadProjectFilesRef = useRef<() => Promise<void>>()
@@ -587,8 +589,8 @@ export const ProjectInfoSidebar: React.FC<ProjectInfoSidebarProps> = ({
                   <div className="flex-1 overflow-hidden">
                     {projectPath ? (
                       <div className="h-full overflow-auto">
-                        <GitTimelineTree
-                          ref={timelineTreeRef}
+                        <CheckpointTimeline
+                          ref={timelineRef || timelineTreeRef}
                           projectPath={projectPath}
                           onCheckpointRestore={onCheckpointRestore}
                           onCheckpointDelete={onCheckpointDelete}

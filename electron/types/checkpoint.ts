@@ -1,26 +1,19 @@
 /**
- * Git-style checkpoint type definitions
+ * Checkpoint type definitions
  */
 
 /**
- * Checkpoint information (Git-style), directly reflects core information of a Commit object
+ * Checkpoint information, simplified for linear checkpoint history
  */
-export interface GitCheckpointInfo {
-  hash: string;            // Commit hash
-  description: string;     // User description (commit message)
+export interface CheckpointInfo {
+  hash: string;            // Checkpoint hash
+  description: string;     // User description
   timestamp: string;       // Creation timestamp
   author: string;          // Author
-  parents: string[];       // Parent Commit hash list
+  parent: string | null;   // Parent checkpoint hash (single parent for linear history)
   treeHash: string;        // Root tree object hash
 }
 
-/**
- * Branch information
- */
-export interface BranchInfo {
-  name: string;
-  commitHash: string;
-}
 
 /**
  * Storage statistics
@@ -86,17 +79,7 @@ export interface CheckpointDiff {
 }
 
 /**
- * Merge commit information
- */
-export interface MergeInfo {
-  isMerge: boolean;
-  parentCount: number;
-  parents: string[];
-  note: string;
-}
-
-/**
- * Diff statistics
+ * Diff statistics (simplified for linear checkpoints)
  */
 export interface DiffStats {
   filesAdded: number;       // Added files count
@@ -105,26 +88,21 @@ export interface DiffStats {
   filesRenamed: number;     // Renamed files count
   totalChanges: number;     // Total changes count
   sizeChange: number;       // Size change (bytes)
-  mergeInfo?: MergeInfo;    // Merge commit information (optional)
 }
 
 /**
- * Git-style checkpoint system interface
+ * Checkpoint system interface
  */
-export interface GitCheckpointSystem {
+export interface CheckpointSystem {
   // Basic operations
   createCheckpoint(projectPath: string, description?: string, author?: string): Promise<string>;
   checkout(projectPath: string, ref: string, options?: CheckoutOptions): Promise<void>;
-  getHistory(projectPath: string, branch?: string): Promise<GitCheckpointInfo[]>;
-  
-  // Branch management
-  createBranch(projectPath: string, branchName: string, startPoint?: string): Promise<void>;
-  switchBranch(projectPath: string, branchName: string): Promise<void>;
-  listBranches(projectPath: string): Promise<BranchInfo[]>;
-  deleteBranch(projectPath: string, branchName: string): Promise<void>;
+  resetToCheckpoint(projectPath: string, targetCommitHash: string): Promise<void>;
+  deleteCheckpoint(projectPath: string, commitHash: string): Promise<void>;
+  getHistory(projectPath: string): Promise<CheckpointInfo[]>;
 
   // Advanced operations
-  getCheckpointInfo(projectPath: string, ref: string): Promise<GitCheckpointInfo | null>;
+  getCheckpointInfo(projectPath: string, ref: string): Promise<CheckpointInfo | null>;
   listFiles(projectPath: string, ref: string): Promise<FileRestoreInfo[]>;
   getFileDiff(projectPath: string, fromRef: string, toRef: string): Promise<CheckpointDiff>;
   getCheckpointChanges(projectPath: string, ref: string): Promise<CheckpointDiff>;
@@ -132,16 +110,17 @@ export interface GitCheckpointSystem {
   // Storage management
   getStorageStats(projectPath: string): Promise<StorageStats>;
   garbageCollect(projectPath: string): Promise<void>;
+  optimizeStorage(projectPath: string): Promise<void>;
   
   // Import/export (future implementation)
-  // exportCheckpoint(ref: string, outputPath: string): Promise<void>;
-  // importCheckpoint(archivePath: string, projectPath: string): Promise<string>;
+  exportCheckpoint(checkpointId: string, outputPath: string): Promise<void>;
+  importCheckpoint(archivePath: string, projectPath: string): Promise<string>;
 }
 
 /**
  * Configuration options
  */
-export interface GitCheckpointConfig {
+export interface CheckpointConfig {
   basePath?: string;              // Base storage path
   compressionLevel?: number;      // Compression level
   maxFileSize?: number;           // Maximum file size

@@ -227,65 +227,9 @@ export interface DateUsageStats {
 }
 
 // ===================
-// Git Checkpoint Types
+// Git Checkpoint Types - Now using backend types directly
+// Legacy types removed to avoid redundancy
 // ===================
-
-export interface GitCheckpoint {
-  commitHash: string
-  description?: string
-  author?: string
-}
-
-export interface GitBranch {
-  name: string
-  current: boolean
-  hash: string
-}
-
-export interface GitHistory {
-  commits: GitCommit[]
-  branches: GitBranch[]
-}
-
-export interface GitCommit {
-  hash: string
-  message: string
-  author: string
-  date: string
-  parents: string[]
-}
-
-export interface GitFileInfo {
-  path: string
-  hash: string
-  size: number
-  mode: string
-}
-
-export interface GitDiff {
-  files: GitFileDiff[]
-  stats: {
-    additions: number
-    deletions: number
-    changes: number
-  }
-}
-
-export interface GitFileDiff {
-  path: string
-  status: 'added' | 'modified' | 'deleted' | 'renamed'
-  oldPath?: string
-  additions: number
-  deletions: number
-  content?: string
-}
-
-export interface GitStorageStats {
-  totalSize: number
-  objectCount: number
-  branchCount: number
-  commitCount: number
-}
 
 // ===================
 // Git Status Types

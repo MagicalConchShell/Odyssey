@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import clsx from 'clsx'
 
 // Import our new components
@@ -11,6 +11,9 @@ import {
   useAppStore,
   type Project
 } from '@/store'
+
+// Import timeline ref type
+import type { CheckpointTimelineRef } from '@/components/checkpoint-timeline/CheckpointTimeline'
 
 interface ProjectWorkspaceProps {
   onProjectSelect?: (project: Project) => void
@@ -31,11 +34,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const sidebarTab = useAppStore((state) => state.sidebarTab)
   const setSidebarTab = useAppStore((state) => state.setSidebarTab)
 
+  // Timeline ref to access refresh method
+  const timelineRef = useRef<CheckpointTimelineRef>(null)
+
   // No more useEffect for syncing props to state - state is managed entirely by store
 
   const handleCheckpointRestore = async (commitHash: string) => {
     try {
-      const result = await window.electronAPI.gitCheckpoint.checkout(projectPath, commitHash)
+      const result = await window.electronAPI.checkpoint.checkout(projectPath, commitHash)
       if (result.success) {
         setSelectedCheckpoint(commitHash)
         setSidebarTab('timeline')
@@ -49,14 +55,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 
   const handleCheckpointCreate = async (description: string) => {
     try {
-      const result = await window.electronAPI.gitCheckpoint.createCheckpoint(projectPath, description)
+      const result = await window.electronAPI.checkpoint.createCheckpoint(projectPath, description)
       if (result.success) {
         console.log('Checkpoint created successfully:', result)
-        // Force refresh of timeline by switching to timeline tab and triggering state update
+        // Switch to timeline tab
         setSidebarTab('timeline')
-
-        // Timeline will automatically refresh through ProjectInfoSidebar
-        // No need to update project state as it causes infinite loops
+        
+        // Refresh the timeline to show the new checkpoint
+        timelineRef.current?.refreshTimeline()
       } else {
         console.error('Failed to create checkpoint:', result.error)
       }
@@ -65,19 +71,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     }
   }
 
-  const handleCheckpointDelete = async (branchName: string) => {
+  const handleCheckpointDelete = async (commitHash: string) => {
     try {
-      const result = await window.electronAPI.gitCheckpoint.deleteBranch(projectPath, branchName)
+      const result = await window.electronAPI.checkpoint.deleteCheckpoint(projectPath, commitHash)
       if (result.success) {
-        console.log('Branch deleted successfully:', branchName)
-        // Refresh will be handled by ProjectInfoSidebar
+        console.log('Checkpoint deleted successfully:', result)
+        // Refresh the timeline to reflect the deletion
+        timelineRef.current?.refreshTimeline()
       } else {
-        console.error('Failed to delete branch:', result.error)
+        console.error('Failed to delete checkpoint:', result.error)
       }
     } catch (error) {
-      console.error('Error deleting branch:', error)
+      console.error('Error deleting checkpoint:', error)
     }
   }
+
 
   const handleProjectSelect = (newProject: Project) => {
     // Validate project data before setting
@@ -126,6 +134,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           onCheckpointCreate={handleCheckpointCreate}
           onCheckpointRestore={handleCheckpointRestore}
           onCheckpointDelete={handleCheckpointDelete}
+          timelineRef={timelineRef}
           className="flex-shrink-0"
         />
 

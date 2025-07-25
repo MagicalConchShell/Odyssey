@@ -3,10 +3,12 @@ import { FileSystemService } from './file-system-service';
 import {join, dirname, resolve} from 'path';
 import {homedir} from 'os';
 import {createHash} from 'crypto';
-import {GitObjectStore, DirectoryTreeBuilder, BlobObject, TreeObject, CommitObject} from './git-objects-service.js';
+import {ObjectStore, DirectoryTreeBuilder, BlobObject, TreeObject, CommitObject} from './object-storage-service.js';
+import {RetryManager, withRetry, CHECKPOINT_RETRY_OPTIONS} from '../utils/retry-manager.js';
+import {TransactionManager, withTransaction, createRefOperationRollback} from '../utils/transaction-manager.js';
 import type {
-  GitCheckpointSystem,
-  GitCheckpointInfo,
+  CheckpointSystem,
+  CheckpointInfo,
   StorageStats,
   FileRestoreInfo,
   CheckoutOptions,
@@ -14,21 +16,22 @@ import type {
   FileDiff,
   DiffStats,
   DiffType,
-  GitCheckpointConfig,
-  BranchInfo
-} from '../types/git-checkpoint.js';
+  CheckpointConfig
+} from '../types/checkpoint.js';
 
 /**
- * Git-style checkpoint storage system
+ * Checkpoint storage system
  */
-export class GitCheckpointStorage implements GitCheckpointSystem {
+export class CheckpointStorage implements CheckpointSystem {
   private baseDir: string;
   private ignorePatterns: string[];
   private maxFileSize: number;
   private author: string;
+  private retryManager: RetryManager;
+  private transactionManager: TransactionManager;
 
-  constructor(config: GitCheckpointConfig = {}) {
-    this.baseDir = config.basePath || join(homedir(), '.odyssey', 'git-checkpoints');
+  constructor(config: CheckpointConfig = {}) {
+    this.baseDir = config.basePath || join(homedir(), '.odyssey', 'checkpoints');
     this.ignorePatterns = config.ignorePatterns || [
       'node_modules/**',
       '.git/**',
@@ -47,60 +50,148 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
     ];
     this.maxFileSize = config.maxFileSize || 100 * 1024 * 1024; // 100MB
     this.author = config.author || 'odyssey-user';
+    
+    // Initialize retry manager with checkpoint-specific configuration
+    this.retryManager = new RetryManager({
+      maxAttempts: 3,
+      initialDelay: 1000,
+      maxDelay: 30000,
+      enableMonitoring: true,
+      context: 'checkpoint-service'
+    });
+    
+    // Initialize transaction manager for rollback capabilities
+    this.transactionManager = new TransactionManager(
+      join(this.baseDir, 'transactions')
+    );
+    
+    // Register custom rollback handlers for checkpoint operations
+    this.initializeCustomRollbackHandlers();
   }
 
   /**
-   * Create checkpoint
+   * Initialize custom rollback handlers for checkpoint-specific operations
+   */
+  private initializeCustomRollbackHandlers(): void {
+    // Object store rollback handler
+    (this.transactionManager as any).rollbackHandlers.set('object-store', {
+      execute: async (operation: any) => {
+        const { objectStore, commitHash, shouldDelete } = operation.rollbackData;
+        if (shouldDelete && commitHash && objectStore) {
+          try {
+            await objectStore.deleteObject(commitHash);
+            console.log(`[Transaction] Rolled back object store operation: deleted ${commitHash.substring(0, 8)}`);
+          } catch (error: any) {
+            console.warn(`[Transaction] Failed to delete object during rollback: ${error.message}`);
+          }
+        }
+      },
+      canRollback: async (operation: any) => {
+        return operation.rollbackData && operation.rollbackData.shouldDelete;
+      }
+    });
+  }
+
+  /**
+   * Create checkpoint with enhanced retry logic and transaction support
    */
   async createCheckpoint(projectPath: string, description?: string, author?: string): Promise<string> {
     const startTime = Date.now();
 
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-      const objectStore = await this.initStorage(projectHash);
+    const result = await this.retryManager.execute(async () => {
+      return await withTransaction(this.transactionManager, async (transactionId) => {
+        const projectHash = this.hashProjectPath(projectPath);
+        const objectStore = await this.initStorage(projectHash);
 
-      // Build directory tree
-      const treeBuilder = new DirectoryTreeBuilder(objectStore, this.ignorePatterns, this.maxFileSize);
-      const treeHash = await treeBuilder.buildTree(projectPath);
+        // Build directory tree with retry protection and transaction support
+        const treeHash = await this.transactionManager.executeInTransaction(
+          transactionId,
+          async () => {
+            return await withRetry(async () => {
+              const treeBuilder = new DirectoryTreeBuilder(objectStore, this.ignorePatterns, this.maxFileSize);
+              return await treeBuilder.buildTree(projectPath);
+            }, 'build-directory-tree', CHECKPOINT_RETRY_OPTIONS.fileOperations);
+          },
+          {
+            type: 'object-store',
+            description: 'Build directory tree for checkpoint',
+            rollbackData: { objectStore, treeHash: null },
+            canRollback: false // Tree building doesn't need rollback as it's read-only
+          }
+        );
 
-      // Get current HEAD as parent Commit
-      let parents: string[] = [];
-      const headCommitHash = await this.resolveRef(projectHash, 'HEAD');
-      if (headCommitHash) {
-        parents.push(headCommitHash);
-      }
+        // Get current HEAD as parent Commit with retry and transaction
+        const headCommitHash = await this.transactionManager.executeInTransaction(
+          transactionId,
+          async () => {
+            return await withRetry(async () => {
+              return await this.resolveRef(projectHash, 'HEAD');
+            }, 'resolve-head-ref', CHECKPOINT_RETRY_OPTIONS.databaseOperations);
+          },
+          {
+            type: 'custom',
+            description: 'Resolve HEAD reference',
+            rollbackData: {},
+            canRollback: false // Reference resolution is read-only
+          }
+        );
 
-      // Create commit object
-      const commitHash = await objectStore.storeCommit({
-        tree: treeHash,
-        parents: parents,
-        author: author || this.author,
-        timestamp: new Date().toISOString(),
-        message: description || `Checkpoint ${new Date().toLocaleString()}`
+        const parent: string | null = headCommitHash || null;
+
+        // Create commit object with retry protection and transaction support
+        const commitHash = await this.transactionManager.executeInTransaction(
+          transactionId,
+          async () => {
+            return await withRetry(async () => {
+              return await objectStore.storeCommit({
+                tree: treeHash,
+                parent: parent,
+                author: author || this.author,
+                timestamp: new Date().toISOString(),
+                message: description || `Checkpoint ${new Date().toLocaleString()}`
+              });
+            }, 'store-commit-object', CHECKPOINT_RETRY_OPTIONS.databaseOperations);
+          },
+          {
+            type: 'object-store',
+            description: `Store commit object for checkpoint`,
+            rollbackData: { objectStore, commitHash: null, shouldDelete: true },
+            canRollback: true // We can delete the commit object if needed
+          }
+        );
+
+        // Update HEAD to point directly to the new commit with retry and transaction
+        const headPath = this.getRefPath(projectHash, 'HEAD');
+        const headRollbackData = await createRefOperationRollback(headPath);
+        
+        await this.transactionManager.executeInTransaction(
+          transactionId,
+          async () => {
+            await withRetry(async () => {
+              await this.setHead(projectHash, commitHash);
+            }, 'update-head-ref', CHECKPOINT_RETRY_OPTIONS.fileOperations);
+          },
+          {
+            type: 'ref-update',
+            description: `Update HEAD to point to new commit ${commitHash.substring(0, 8)}`,
+            rollbackData: headRollbackData,
+            canRollback: true
+          }
+        );
+
+        const duration = Date.now() - startTime;
+        console.log(`✅ Checkpoint created: ${commitHash.substring(0, 8)} (${duration}ms)`);
+
+        return commitHash;
+      }, {
+        operation: 'create-checkpoint',
+        projectPath,
+        description,
+        author: author || this.author
       });
+    }, 'create-checkpoint');
 
-      // Update HEAD to point to the new Commit
-      const currentBranch = await this.getHeadBranch(projectHash);
-      if (currentBranch) {
-        await this.updateRef(projectHash, `refs/heads/${currentBranch}`, commitHash);
-      } else {
-        // If no branch, create a default 'main' branch
-        await this.updateRef(projectHash, 'refs/heads/main', commitHash);
-        await this.setHead(projectHash, 'refs/heads/main');
-      }
-
-      // Auto garbage collection
-      // if (this.autoGC) {
-      //   await this.garbageCollect(projectPath);
-      // }
-
-      const duration = Date.now() - startTime;
-      console.log(`✅ Git-style checkpoint created: ${commitHash.substring(0, 8)} (${duration}ms)`);
-
-      return commitHash;
-    } catch (error: any) {
-      throw new Error(`Failed to create checkpoint: ${error.message}`);
-    }
+    return result.result;
   }
 
   /**
@@ -140,42 +231,231 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
         options
       );
 
-      // Update HEAD
-      if (ref.startsWith('refs/heads/')) {
-        await this.setHead(projectHash, ref);
-      } else {
-        // Detached HEAD
-        await this.setHead(projectHash, commitHash);
-      }
+      // Always set HEAD to the commit hash (pure checkpoint mode)
+      await this.setHead(projectHash, commitHash);
 
       const duration = Date.now() - startTime;
-      console.log(`✅ Git-style checkout: ${ref} (${filesRestored} files, ${duration}ms)`);
+      console.log(`✅ Checkpoint checkout: ${ref} (${filesRestored} files, ${duration}ms)`);
     } catch (error: any) {
       throw new Error(`Failed to checkout ${ref}: ${error.message}`);
     }
   }
 
   /**
-   * Get history (commits)
+   * Safely delete a checkpoint with enhanced retry logic (only supports deleting the latest/HEAD checkpoint)
    */
-  async getHistory(projectPath: string, branch?: string): Promise<GitCheckpointInfo[]> {
+  async deleteCheckpoint(projectPath: string, commitHash: string): Promise<void> {
+    const startTime = Date.now();
+    
+    await this.retryManager.execute(async () => {
+      const projectHash = this.hashProjectPath(projectPath);
+      const objectStore = await this.initStorage(projectHash);
+
+      // Get current history to validate this is the latest checkpoint with retry
+      const allHistory = await withRetry(async () => {
+        return await this.getHistory(projectPath);
+      }, 'get-history-validation', CHECKPOINT_RETRY_OPTIONS.databaseOperations);
+
+      if (allHistory.length === 0) {
+        throw new Error('No checkpoints exist to delete');
+      }
+
+      const latestCommit = allHistory[0]; // Most recent commit
+      if (latestCommit.hash !== commitHash) {
+        throw new Error('Can only delete the latest checkpoint for safety. Use reset to remove multiple checkpoints.');
+      }
+
+      if (allHistory.length === 1) {
+        throw new Error('Cannot delete the only remaining checkpoint');
+      }
+
+      // Validate target commit exists with retry
+      const targetCommit = await withRetry(async () => {
+        const commit = await objectStore.readObject(commitHash) as CommitObject;
+        if (!commit || commit.type !== 'commit') {
+          throw new Error(`Target commit ${commitHash} not found or invalid`);
+        }
+        return commit;
+      }, 'validate-target-commit', CHECKPOINT_RETRY_OPTIONS.databaseOperations);
+
+      // Get parent commit (where we'll reset to) with retry
+      if (targetCommit.parent === null) {
+        throw new Error('Cannot delete the initial checkpoint');
+      }
+      
+      const parentHash = targetCommit.parent;
+      const parentCommit = await withRetry(async () => {
+        const commit = await objectStore.readObject(parentHash) as CommitObject;
+        if (!commit || commit.type !== 'commit') {
+          throw new Error(`Parent commit ${parentHash} not found or invalid`);
+        }
+        return commit;
+      }, 'validate-parent-commit', CHECKPOINT_RETRY_OPTIONS.databaseOperations);
+
+      // Create backup before destructive operation with retry
+      const backupHash = await withRetry(async () => {
+        return await this.backupCurrentState(projectPath);
+      }, 'create-backup-before-delete', CHECKPOINT_RETRY_OPTIONS.fileOperations);
+      
+      console.log(`Created backup before delete: ${backupHash}`);
+
+      // Step 1: Update HEAD to parent commit with retry
+      await withRetry(async () => {
+        await this.setHead(projectHash, parentHash);
+      }, 'update-head-to-parent', CHECKPOINT_RETRY_OPTIONS.fileOperations);
+
+      // Step 2: Restore working directory to parent state with retry
+      await withRetry(async () => {
+        await this.safeRestoreFiles(
+          objectStore,
+          parentCommit.tree,
+          projectPath,
+          { overwrite: true, preservePermissions: true }
+        );
+      }, 'restore-files-to-parent', CHECKPOINT_RETRY_OPTIONS.fileOperations);
+
+      // Step 3: Remove the target commit object with retry
+      console.log(`Removing commit object: ${commitHash}`);
+      await withRetry(async () => {
+        await objectStore.deleteObject(commitHash);
+      }, 'delete-commit-object', CHECKPOINT_RETRY_OPTIONS.databaseOperations);
+      
+      // Run garbage collection to clean up orphaned objects with retry
+      await withRetry(async () => {
+        await this.garbageCollect(projectPath);
+      }, 'garbage-collect-after-delete', CHECKPOINT_RETRY_OPTIONS.heavyOperations);
+
+      const duration = Date.now() - startTime;
+      console.log(`✅ Delete checkpoint ${commitHash.substring(0, 8)} completed (${duration}ms)`);
+      console.log(`Reset to parent commit ${parentHash.substring(0, 8)}`);
+    }, 'delete-checkpoint');
+
+    // Method returns void, so we just need the result to complete
+  }
+
+  /**
+   * Reset to a specific checkpoint, removing all later commits (destructive operation)
+   * This is equivalent to checkpoint reset with history truncation
+   */
+  async resetToCheckpoint(projectPath: string, targetCommitHash: string): Promise<void> {
+    const startTime = Date.now();
+
     try {
       const projectHash = this.hashProjectPath(projectPath);
       const objectStore = await this.initStorage(projectHash);
 
-      let startCommitHash: string | null = null;
-      if (branch) {
-        startCommitHash = await this.resolveRef(projectHash, `refs/heads/${branch}`);
-      } else {
-        startCommitHash = await this.resolveRef(projectHash, 'HEAD');
+      // Validate target commit exists
+      const targetCommit = await objectStore.readObject(targetCommitHash) as CommitObject;
+      if (!targetCommit || targetCommit.type !== 'commit') {
+        throw new Error(`Target commit ${targetCommitHash} not found or invalid`);
       }
+
+      // Create backup before destructive operation
+      const backupHash = await this.backupCurrentState(projectPath);
+      console.log(`Created backup before reset: ${backupHash}`);
+
+      // Step 1: Get all commits that will be removed (newer than target)
+      const allHistory = await this.getHistory(projectPath);
+      const targetIndex = allHistory.findIndex(commit => commit.hash === targetCommitHash);
+      
+      if (targetIndex === -1) {
+        throw new Error(`Target commit ${targetCommitHash} not found in history`);
+      }
+
+      const commitsToRemove = allHistory.slice(0, targetIndex);
+      console.log(`Will remove ${commitsToRemove.length} commits newer than target`);
+
+      // Step 2: Update HEAD to target commit
+      await this.setHead(projectHash, targetCommitHash);
+
+      // Step 3: Restore working directory to target state
+      await this.safeRestoreFiles(
+        objectStore,
+        targetCommit.tree,
+        projectPath,
+        { overwrite: true, preservePermissions: true }
+      );
+
+      // Step 4: Remove newer commits and run garbage collection
+      await this.truncateHistoryAfter(objectStore, projectHash, targetCommitHash, commitsToRemove);
+
+      const duration = Date.now() - startTime;
+      console.log(`✅ Reset to checkpoint ${targetCommitHash.substring(0, 8)} completed (${duration}ms)`);
+      console.log(`Removed ${commitsToRemove.length} newer commits`);
+
+    } catch (error: any) {
+      console.error(`❌ Failed to reset to checkpoint: ${error.message}`);
+      throw new Error(`Failed to reset to checkpoint: ${error.message}`);
+    }
+  }
+
+  /**
+   * Truncate history by removing commits newer than target and garbage collecting
+   */
+  private async truncateHistoryAfter(
+    objectStore: ObjectStore,
+    projectHash: string,
+    targetCommitHash: string,
+    commitsToRemove: CheckpointInfo[]
+  ): Promise<void> {
+    console.log(`Starting history truncation after ${targetCommitHash.substring(0, 8)}`);
+
+    try {
+      // Collect all object hashes that should be removed
+      const objectsToRemove = new Set<string>();
+      
+      for (const commit of commitsToRemove) {
+        // Add commit object
+        objectsToRemove.add(commit.hash);
+        
+        // Add tree objects (we'll let GC handle blobs that might be shared)
+        if (commit.treeHash) {
+          objectsToRemove.add(commit.treeHash);
+        }
+      }
+
+      // Remove the commit objects and their trees
+      // Note: We don't remove blobs here as they might be shared with remaining commits
+      let removedCount = 0;
+      for (const objectHash of objectsToRemove) {
+        try {
+          await objectStore.deleteObject(objectHash);
+          removedCount++;
+        } catch (error: any) {
+          // Object might not exist or already removed, continue
+          console.warn(`Could not remove object ${objectHash}: ${error.message}`);
+        }
+      }
+
+      console.log(`Removed ${removedCount} objects during truncation`);
+
+      // Run comprehensive garbage collection to clean up any orphaned objects
+      await this.garbageCollectObjects(objectStore, projectHash);
+
+      console.log(`✅ History truncation completed`);
+
+    } catch (error: any) {
+      console.error(`❌ Error during history truncation: ${error.message}`);
+      throw new Error(`History truncation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get history (commits)
+   */
+  async getHistory(projectPath: string): Promise<CheckpointInfo[]> {
+    try {
+      const projectHash = this.hashProjectPath(projectPath);
+      const objectStore = await this.initStorage(projectHash);
+
+      const startCommitHash = await this.resolveRef(projectHash, 'HEAD');
 
       if (!startCommitHash) {
         console.warn('No start commit found for history traversal.');
         return [];
       }
 
-      const history: GitCheckpointInfo[] = [];
+      const history: CheckpointInfo[] = [];
       const visited = new Set<string>();
       const queue: string[] = [startCommitHash];
 
@@ -198,14 +478,12 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
               description: commit.message,
               timestamp: commit.timestamp,
               author: commit.author,
-              parents: commit.parents,
+              parent: commit.parent,
               treeHash: commit.tree
             });
 
-            for (const parentHash of commit.parents) {
-              if (parentHash && !visited.has(parentHash)) {
-                queue.push(parentHash);
-              }
+            if (commit.parent && !visited.has(commit.parent)) {
+              queue.push(commit.parent);
             }
           } else {
              console.warn(`Object ${currentHash.substring(0,8)} is not a valid commit.`);
@@ -232,133 +510,9 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
   }
 
   /**
-   * Create a new branch
-   */
-  async createBranch(projectPath: string, branchName: string, startPoint?: string): Promise<void> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-
-      let commitHashToPointTo: string | null = null;
-      if (startPoint) {
-        commitHashToPointTo = await this.resolveRef(projectHash, startPoint);
-      } else {
-        // Default to current HEAD
-        commitHashToPointTo = await this.resolveRef(projectHash, 'HEAD');
-      }
-
-      if (!commitHashToPointTo) {
-        throw new Error(`Start point ${startPoint || 'HEAD'} not found.`);
-      }
-
-      await this.updateRef(projectHash, `refs/heads/${branchName}`, commitHashToPointTo);
-      console.log(`✅ Branch ${branchName} created pointing to ${commitHashToPointTo.substring(0, 8)}`);
-    } catch (error: any) {
-      throw new Error(`Failed to create branch ${branchName}: ${error.message}`);
-    }
-  }
-
-  /**
-   * Switch to a branch
-   */
-  async switchBranch(projectPath: string, branchName: string): Promise<void> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-
-      // Validate project path exists
-      if (!projectPath || typeof projectPath !== 'string') {
-        throw new Error('Invalid project path provided');
-      }
-
-      // Check if storage is initialized
-      const objectStore = await this.initStorage(projectHash);
-      if (!objectStore) {
-        throw new Error('Git checkpoint storage not initialized');
-      }
-
-      // Validate branch name
-      if (!branchName || typeof branchName !== 'string') {
-        throw new Error('Invalid branch name provided');
-      }
-
-      // Check if branch exists
-      const branchRef = `refs/heads/${branchName}`;
-      const commitHash = await this.resolveRef(projectHash, branchRef);
-      if (!commitHash) {
-        // List available branches for better error message
-        const branches = await this.listBranches(projectPath);
-        const availableBranches = branches.map(b => b.name).join(', ');
-        throw new Error(`Branch '${branchName}' not found. Available branches: ${availableBranches || 'none'}`);
-      }
-
-      // Verify commit exists
-      const commitObj = await objectStore.readObject(commitHash);
-      if (!commitObj || commitObj.type !== 'commit') {
-        throw new Error(`Branch '${branchName}' points to invalid commit ${commitHash.substring(0, 8)}`);
-      }
-
-      // Update HEAD to point to the branch
-      await this.setHead(projectHash, branchRef);
-
-      // Checkout the branch's commit
-      await this.checkout(projectPath, commitHash);
-      
-      console.log(`✅ Switched to branch ${branchName} (${commitHash.substring(0, 8)})`);
-    } catch (error: any) {
-      console.error(`❌ Failed to switch to branch ${branchName}:`, error.message);
-      throw new Error(`Failed to switch to branch ${branchName}: ${error.message}`);
-    }
-  }
-
-  /**
-   * List all branches
-   */
-  async listBranches(projectPath: string): Promise<BranchInfo[]> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-      const refsDir = join(this.getProjectDir(projectHash), 'refs', 'heads');
-
-      const branches: BranchInfo[] = [];
-      try {
-        const branchFiles = await fs.readdir(refsDir);
-        for (const file of branchFiles) {
-          const branchName = file;
-          const commitHash = await fs.readFile(join(refsDir, file), 'utf8');
-          branches.push({name: branchName, commitHash: commitHash.trim()});
-        }
-      } catch (error: any) {
-        if (error.code !== 'ENOENT') throw error;
-      }
-      return branches;
-    } catch (error: any) {
-      throw new Error(`Failed to list branches: ${error.message}`);
-    }
-  }
-
-  /**
-   * Delete a branch
-   */
-  async deleteBranch(projectPath: string, branchName: string): Promise<void> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-      const branchPath = join(this.getProjectDir(projectHash), 'refs', 'heads', branchName);
-
-      // Prevent deleting current branch
-      const currentHead = await this.getHeadRef(projectHash);
-      if (currentHead === `refs/heads/${branchName}`) {
-        throw new Error(`Cannot delete branch ${branchName}: it is the current branch.`);
-      }
-
-      await fs.unlink(branchPath);
-      console.log(`✅ Branch ${branchName} deleted.`);
-    } catch (error: any) {
-      throw new Error(`Failed to delete branch ${branchName}: ${error.message}`);
-    }
-  }
-
-  /**
    * Get checkpoint info by ref
    */
-  async getCheckpointInfo(projectPath: string, ref: string): Promise<GitCheckpointInfo | null> {
+  async getCheckpointInfo(projectPath: string, ref: string): Promise<CheckpointInfo | null> {
     try {
       const projectHash = this.hashProjectPath(projectPath);
       const objectStore = await this.initStorage(projectHash);
@@ -378,7 +532,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
         description: commit.message,
         timestamp: commit.timestamp,
         author: commit.author,
-        parents: commit.parents,
+        parent: commit.parent,
         treeHash: commit.tree
       };
     } catch (error: any) {
@@ -535,8 +689,8 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
         throw new Error(`Checkpoint ${ref} not found`);
       }
 
-      // If this is the initial commit (no parents), return all files as added
-      if (checkpointInfo.parents.length === 0) {
+      // If this is the initial checkpoint (no parent), return all files as added
+      if (checkpointInfo.parent === null) {
         const files = await this.listFiles(projectPath, ref);
         const fileDiffs: FileDiff[] = files.map(file => ({
           type: 'added' as DiffType,
@@ -556,70 +710,26 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
         };
       }
 
-      // Handle merge commits with multiple parents
-      if (checkpointInfo.parents.length > 1) {
-        console.log(`Merge commit detected with ${checkpointInfo.parents.length} parents`);
+      // Standard single parent comparison - simplified for linear checkpoints
+      const parentRef = checkpointInfo.parent;
+      console.log(`Comparing checkpoint ${ref} with parent ${parentRef}`);
 
-        // For merge commits, compare with the first parent (main branch)
-        // and add a note about the merge nature
-        const parentRef = checkpointInfo.parents[0];
-        console.log(`Comparing merge commit ${ref} with first parent ${parentRef}`);
+      // Verify that both refs can be resolved
+      const projectHash = this.hashProjectPath(projectPath);
+      const [resolvedParent, resolvedCurrent] = await Promise.all([
+        this.resolveRef(projectHash, parentRef),
+        this.resolveRef(projectHash, ref)
+      ]);
 
-        // Verify that both refs can be resolved
-        const projectHash = this.hashProjectPath(projectPath);
-        const [resolvedParent, resolvedCurrent] = await Promise.all([
-          this.resolveRef(projectHash, parentRef),
-          this.resolveRef(projectHash, ref)
-        ]);
-
-        if (!resolvedParent) {
-          throw new Error(`Parent ref ${parentRef} could not be resolved`);
-        }
-        if (!resolvedCurrent) {
-          throw new Error(`Current ref ${ref} could not be resolved`);
-        }
-
-        console.log(`Resolved refs: ${parentRef} -> ${resolvedParent.substring(0, 8)}, ${ref} -> ${resolvedCurrent.substring(0, 8)}`);
-        const diff = await this.getFileDiff(projectPath, resolvedParent, resolvedCurrent);
-
-        // Add merge commit metadata to the diff
-        return {
-          ...diff,
-          fromRef: `${parentRef} (merge base)`,
-          toRef: `${ref} (merge commit)`,
-          stats: {
-            ...diff.stats,
-            // Add note about merge nature
-            mergeInfo: {
-              isMerge: true,
-              parentCount: checkpointInfo.parents.length,
-              parents: checkpointInfo.parents,
-              note: `This is a merge commit with ${checkpointInfo.parents.length} parents. Changes shown are relative to the first parent (main branch).`
-            }
-          }
-        };
-      } else {
-        // Single parent commit - standard comparison
-        const parentRef = checkpointInfo.parents[0];
-        console.log(`Comparing checkpoint ${ref} with parent ${parentRef}`);
-
-        // Verify that both refs can be resolved
-        const projectHash = this.hashProjectPath(projectPath);
-        const [resolvedParent, resolvedCurrent] = await Promise.all([
-          this.resolveRef(projectHash, parentRef),
-          this.resolveRef(projectHash, ref)
-        ]);
-
-        if (!resolvedParent) {
-          throw new Error(`Parent ref ${parentRef} could not be resolved`);
-        }
-        if (!resolvedCurrent) {
-          throw new Error(`Current ref ${ref} could not be resolved`);
-        }
-
-        console.log(`Resolved refs: ${parentRef} -> ${resolvedParent.substring(0, 8)}, ${ref} -> ${resolvedCurrent.substring(0, 8)}`);
-        return await this.getFileDiff(projectPath, resolvedParent, resolvedCurrent);
+      if (!resolvedParent) {
+        throw new Error(`Parent ref ${parentRef} could not be resolved`);
       }
+      if (!resolvedCurrent) {
+        throw new Error(`Current ref ${ref} could not be resolved`);
+      }
+
+      console.log(`Resolved refs: ${parentRef} -> ${resolvedParent.substring(0, 8)}, ${ref} -> ${resolvedCurrent.substring(0, 8)}`);
+      return await this.getFileDiff(projectPath, resolvedParent, resolvedCurrent);
 
     } catch (error: any) {
       throw new Error(`Failed to get checkpoint changes for ${ref}: ${error.message}`);
@@ -631,7 +741,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    */
   async getStorageStats(projectPath: string): Promise<StorageStats> {
     const projectHash = this.hashProjectPath(projectPath);
-    const objectStore = new GitObjectStore(this.getProjectDir(projectHash));
+    const objectStore = new ObjectStore(this.getProjectDir(projectHash));
 
     await objectStore.init();
     const stats = await objectStore.getStats();
@@ -651,7 +761,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    */
   async garbageCollect(projectPath: string): Promise<void> {
     const projectHash = this.hashProjectPath(projectPath);
-    const objectStore = new GitObjectStore(this.getProjectDir(projectHash));
+    const objectStore = new ObjectStore(this.getProjectDir(projectHash));
 
     await this.garbageCollectObjects(objectStore, projectHash);
   }
@@ -690,19 +800,19 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
   /**
    * Initialize storage for a project
    */
-  private async initStorage(projectHash: string): Promise<GitObjectStore> {
+  private async initStorage(projectHash: string): Promise<ObjectStore> {
     const projectDir = this.getProjectDir(projectHash);
     const dirs = [
       projectDir,
       join(projectDir, 'objects'),
-      join(projectDir, 'refs', 'heads') // Create refs/heads directory
+      join(projectDir, 'refs', 'backups') // Create refs/backups directory for backup refs
     ];
 
     for (const dir of dirs) {
       await fs.mkdir(dir, {recursive: true});
     }
 
-    const objectStore = new GitObjectStore(projectDir);
+    const objectStore = new ObjectStore(projectDir);
     await objectStore.init();
 
     return objectStore;
@@ -712,7 +822,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    * Restore files from a tree object
    */
   private async restoreFilesFromTree(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     treeHash: string,
     basePath: string,
     options: CheckoutOptions
@@ -755,7 +865,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    * List files from a tree object
    */
   private async listFilesFromTree(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     treeHash: string,
     basePath: string
   ): Promise<FileRestoreInfo[]> {
@@ -798,7 +908,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    * Find a specific file in a tree
    */
   private async findFileInTree(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     treeHash: string,
     targetPath: string,
     basePath: string = ''
@@ -864,7 +974,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
     }
 
     // Check for added and modified files
-    for (const [path, file2] of fileMap2) {
+    for (const [path, file2] of Array.from(fileMap2)) {
       const file1 = fileMap1.get(path);
 
       if (!file1) {
@@ -895,7 +1005,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
     // Check for deleted files and detect renames
     const processedRenames = new Set<string>();
     
-    for (const [path, file1] of fileMap1) {
+    for (const [path, file1] of Array.from(fileMap1)) {
       if (!fileMap2.has(path)) {
         // File was deleted, check if it was renamed
         let foundRename = false;
@@ -1097,31 +1207,40 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
     }
   }
 
-  /**
-   * Get current HEAD branch name
-   */
-  private async getHeadBranch(projectHash: string): Promise<string | null> {
-    const headRef = await this.getHeadRef(projectHash);
-    if (headRef && headRef.startsWith('ref: refs/heads/')) {
-      return headRef.substring('ref: refs/heads/'.length);
-    }
-    return null;
-  }
 
   /**
    * Garbage collect objects
    */
-  private async garbageCollectObjects(objectStore: GitObjectStore, projectHash: string): Promise<void> {
+  private async garbageCollectObjects(objectStore: ObjectStore, projectHash: string): Promise<void> {
     try {
       const referencedObjects = new Set<string>();
 
-      // 1. Collect all reachable objects from HEAD and branches
-      const branches = await this.listBranches(projectHash);
+      // 1. Collect all reachable objects from HEAD and backup refs
       const headRef = await this.getHeadRef(projectHash);
-
-      const allRefs = branches.map(b => `refs/heads/${b.name}`);
-      if (headRef && !headRef.startsWith('ref: ')) { // Detached HEAD
-        allRefs.push(headRef);
+      const allRefs: string[] = [];
+      
+      if (headRef) {
+        if (headRef.startsWith('ref: ')) {
+          // Symbolic ref - resolve it
+          const resolvedRef = await this.resolveRef(projectHash, headRef.substring(5));
+          if (resolvedRef) allRefs.push(resolvedRef);
+        } else {
+          // Direct commit hash
+          allRefs.push(headRef);
+        }
+      }
+      
+      // Also collect backup refs
+      try {
+        const backupsDir = join(this.getProjectDir(projectHash), 'refs', 'backups');
+        const backupFiles = await fs.readdir(backupsDir);
+        for (const backupFile of backupFiles) {
+          const backupHash = await fs.readFile(join(backupsDir, backupFile), 'utf8');
+          allRefs.push(backupHash.trim());
+        }
+      } catch (error: any) {
+        // Backups directory might not exist, which is fine
+        if (error.code !== 'ENOENT') throw error;
       }
 
       for (const ref of allRefs) {
@@ -1159,7 +1278,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    * Recursively collect all reachable objects
    */
   private async collectReachableObjects(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     startHash: string,
     referencedObjects: Set<string>
   ): Promise<void> {
@@ -1178,8 +1297,8 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
         const commit = obj as CommitObject;
         referencedObjects.add(commit.tree);
         queue.push(commit.tree);
-        for (const parent of commit.parents) {
-          queue.push(parent);
+        if (commit.parent) {
+          queue.push(commit.parent);
         }
       } else if (obj.type === 'tree') {
         const tree = obj as TreeObject;
@@ -1211,11 +1330,12 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
       if (backupHash) {
         console.log(`Backup checkpoint created with hash: ${backupHash}`);
         
-        // Store the backup hash in a special backup ref
-        const backupRef = `backup-${Date.now()}`;
-        await this.createBranch(projectPath, backupRef, backupHash);
+        // Store the backup hash directly as a ref (no branch needed)
+        const projectHash = this.hashProjectPath(projectPath);
+        const backupRef = `refs/backups/backup-${Date.now()}`;
+        await this.updateRef(projectHash, backupRef, backupHash);
         
-        console.log(`Backup stored in branch: ${backupRef}`);
+        console.log(`Backup stored as ref: ${backupRef}`);
         return backupHash;
       } else {
         console.warn(`Failed to create backup checkpoint`);
@@ -1233,7 +1353,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    * preserving untracked files and preventing data loss
    */
   private async safeRestoreFiles(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     treeHash: string,
     projectPath: string,
     options: CheckoutOptions
@@ -1262,7 +1382,7 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
    * Recursively collect all file paths that will be restored
    */
   private async collectFilesToRestore(
-    objectStore: GitObjectStore,
+    objectStore: ObjectStore,
     treeHash: string,
     basePath: string,
     filesToRestore: Set<string>
@@ -1285,8 +1405,8 @@ export class GitCheckpointStorage implements GitCheckpointSystem {
 }
 
 /**
- * Create Git-style checkpoint storage instance
+ * Create checkpoint storage instance
  */
-export function createGitCheckpointStorage(config?: GitCheckpointConfig): GitCheckpointStorage {
-  return new GitCheckpointStorage(config);
+export function createCheckpointStorage(config?: CheckpointConfig): CheckpointStorage {
+  return new CheckpointStorage(config);
 }
