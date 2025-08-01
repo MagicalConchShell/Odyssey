@@ -3,7 +3,6 @@ import {join} from 'path';
 import {dbManager} from './services/database-service.js';
 import {usageDataCache} from './services/usage-analytics-service.js';
 import {setupAllHandlers, cleanupHandlers} from './handlers/index.js';
-import {setMainWindow} from './handlers/file-system-handler.js';
 import {ptyService} from "./services/pty-service";
 
 let mainWindow: BrowserWindow;
@@ -33,8 +32,6 @@ const createWindow = async () => {
     mainWindow.show();
     console.log('✅ Main window ready and visible');
 
-    // Set the main window for file system watcher
-    setMainWindow(mainWindow);
   });
 
 

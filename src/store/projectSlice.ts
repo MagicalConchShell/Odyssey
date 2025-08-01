@@ -18,8 +18,6 @@ export interface Project {
 }
 
 export interface ProjectSettings {
-  autoCheckpoint: boolean
-  checkpointInterval: number
   customPromptTemplate: string
   excludePatterns: string[]
   includePatterns: string[]
@@ -28,13 +26,6 @@ export interface ProjectSettings {
   terminalShell?: string
 }
 
-export interface CheckpointInfo {
-  hash: string
-  description: string
-  author: string
-  timestamp: string
-  parents: string[]
-}
 
 // Project slice state
 export interface ProjectSlice {
@@ -43,16 +34,10 @@ export interface ProjectSlice {
   projectPath: string
   projectSettings: ProjectSettings
   
-  // Checkpoint state
-  selectedCheckpoint: string | null
-  checkpointHistory: CheckpointInfo[]
-  
   // Project actions
   setProject: (project: Project) => Promise<void>
   setProjectPath: (path: string) => void
   updateProjectSettings: (settings: Partial<ProjectSettings>) => void
-  setSelectedCheckpoint: (checkpoint: string | null) => void
-  setCheckpointHistory: (history: CheckpointInfo[]) => void
   resetProject: () => void
   
   // Persistence is now handled automatically by persist middleware
@@ -60,8 +45,6 @@ export interface ProjectSlice {
 
 // Initial project settings
 const initialProjectSettings: ProjectSettings = {
-  autoCheckpoint: true,
-  checkpointInterval: 5,
   customPromptTemplate: '',
   excludePatterns: ['.git', 'node_modules', '.env', '*.log'],
   includePatterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.md'],
@@ -80,8 +63,6 @@ export const createProjectSlice: StateCreator<
   currentProject: null,
   projectPath: '',
   projectSettings: initialProjectSettings,
-  selectedCheckpoint: null,
-  checkpointHistory: [],
 
   // Core project switching action - this is the key improvement
   setProject: async (newProject: Project) => {
@@ -137,7 +118,6 @@ export const createProjectSlice: StateCreator<
         projectPath: normalizedPath,
         projectSettings: { ...initialProjectSettings, ...newProject.settings },
         // Reset related UI state
-        selectedCheckpoint: null,
         sidebarTab: 'files',
         terminalMode: 'welcome'
       })
@@ -166,7 +146,6 @@ export const createProjectSlice: StateCreator<
           set({
             currentProject: null,
             projectPath: '',
-            selectedCheckpoint: null,
             terminalMode: 'welcome'
           })
         } catch (failsafeError) {
@@ -210,13 +189,6 @@ export const createProjectSlice: StateCreator<
     // Persistence is now handled automatically by persist middleware
   },
 
-  setSelectedCheckpoint: (checkpoint: string | null) => {
-    set({ selectedCheckpoint: checkpoint })
-  },
-
-  setCheckpointHistory: (history: CheckpointInfo[]) => {
-    set({ checkpointHistory: history })
-  },
 
   resetProject: () => {
     console.log('[AppStore] Resetting project state')
@@ -229,8 +201,6 @@ export const createProjectSlice: StateCreator<
       currentProject: null,
       projectPath: '',
       projectSettings: initialProjectSettings,
-      selectedCheckpoint: null,
-      checkpointHistory: [],
       sidebarTab: 'files',
       sidebarCollapsed: false,
       terminalMode: 'welcome'

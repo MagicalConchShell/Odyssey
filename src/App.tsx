@@ -11,8 +11,6 @@ import {MCPManager} from '@/components/mcp'
 import {WelcomeScreen} from '@/components/WelcomeScreen'
 import {Topbar} from '@/components/layout'
 import {ThemeProvider} from '@/components/theme-provider'
-import {MarkdownEditor} from '@/components/editor'
-import {ClaudeFileEditor} from '@/components/editor'
 import {GlobalCommandOverlay} from '@/components/command'
 import {Toaster} from '@/components/ui/sonner'
 import {useAppStore} from '@/store'
@@ -279,7 +277,19 @@ function App() {
   )
 
   const renderClaudeEditorView = () => (
-    <MarkdownEditor onBack={() => setView("editor")}/>
+    <div className="min-h-screen bg-background p-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center py-12">
+          <p className="text-lg text-muted-foreground">Editor functionality has been removed</p>
+          <button
+            onClick={() => setView("welcome")}
+            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+          >
+            Go to Welcome
+          </button>
+        </div>
+      </div>
+    </div>
   )
 
   const renderClaudeFileEditorView = () => {
@@ -302,10 +312,19 @@ function App() {
     }
 
     return (
-      <ClaudeFileEditor
-        file={selectedClaudeMdFile}
-        onBack={() => setView("welcome")}
-      />
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center py-12">
+            <p className="text-lg text-muted-foreground">File editor functionality has been removed</p>
+            <button
+              onClick={() => setView("welcome")}
+              className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+            >
+              Go to Welcome
+            </button>
+          </div>
+        </div>
+      </div>
     )
   }
 

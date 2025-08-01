@@ -10,7 +10,6 @@ import type {
   PersistedTerminal
 } from '../types/workspace-state.js';
 
-import { FileSystemService } from './file-system-service';
 
 /**
  * SOTA Workspace State Service
@@ -51,7 +50,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       };
 
       console.log(`📋 Saving state with ${stateWithMeta.terminals.length} terminals`);
-      await FileSystemService.atomicWrite(statePath, JSON.stringify(stateWithMeta, null, 2));
+      await fs.writeFile(statePath, JSON.stringify(stateWithMeta, null, 2), 'utf8');
 
       console.log(`✅ Workspace state saved for project: ${projectPath} (${projectHash.substring(0, 8)})`);
     } catch (error: any) {
@@ -197,7 +196,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
         for (const dir of projectDirs) {
           if (dir.isDirectory()) {
             const projectPath = join(this.baseDir, dir.name);
-            await FileSystemService.acquireLock(projectPath);
+            // Lock functionality removed - now using simple file writes
             try {
               const statePath = join(projectPath, 'workspace.json');
               try {
@@ -218,7 +217,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
                 console.log(`🧹 Cleaned up orphaned workspace directory: ${dir.name}`);
               }
             } finally {
-              FileSystemService.releaseLock(projectPath);
+              // Lock functionality removed
             }
           }
         }

@@ -47,5 +47,5 @@ export const useHasTerminals = () => {
 // No manual initialization needed
 
 // Re-export types for convenience
-export type { Project, ProjectSettings, CheckpointInfo } from './projectSlice'
+export type { Project, ProjectSettings } from './projectSlice'
 export type { Terminal, CreateTerminalOptions, TerminalMode } from '@/types/terminal'

@@ -1,8 +1,7 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import clsx from 'clsx'
 
-// Import our new components
-import {ProjectInfoSidebar} from './ProjectInfoSidebar'
+// Import components
 import {TerminalContainer} from '@/components/terminal'
 import {ProjectHeader} from './ProjectHeader'
 
@@ -11,9 +10,6 @@ import {
   useAppStore,
   type Project
 } from '@/store'
-
-// Import timeline ref type
-import type { CheckpointTimelineRef } from '@/components/checkpoint-timeline/CheckpointTimeline'
 
 interface ProjectWorkspaceProps {
   onProjectSelect?: (project: Project) => void
@@ -26,66 +22,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                                                                     onNewProject,
                                                                     className,
                                                                   }) => {
-  // Use project state management - no longer need to sync with props
+  // Use project state management
   const currentProject = useAppStore((state) => state.currentProject)
   const projectPath = useAppStore((state) => state.projectPath)
-  const selectedCheckpoint = useAppStore((state) => state.selectedCheckpoint)
-  const setSelectedCheckpoint = useAppStore((state) => state.setSelectedCheckpoint)
-  const sidebarTab = useAppStore((state) => state.sidebarTab)
-  const setSidebarTab = useAppStore((state) => state.setSidebarTab)
-
-  // Timeline ref to access refresh method
-  const timelineRef = useRef<CheckpointTimelineRef>(null)
-
-  // No more useEffect for syncing props to state - state is managed entirely by store
-
-  const handleCheckpointRestore = async (commitHash: string) => {
-    try {
-      const result = await window.electronAPI.checkpoint.checkout(projectPath, commitHash)
-      if (result.success) {
-        setSelectedCheckpoint(commitHash)
-        setSidebarTab('timeline')
-      } else {
-        console.error('Failed to restore checkpoint:', result.error)
-      }
-    } catch (error) {
-      console.error('Error restoring checkpoint:', error)
-    }
-  }
-
-  const handleCheckpointCreate = async (description: string) => {
-    try {
-      const result = await window.electronAPI.checkpoint.createCheckpoint(projectPath, description)
-      if (result.success) {
-        console.log('Checkpoint created successfully:', result)
-        // Switch to timeline tab
-        setSidebarTab('timeline')
-        
-        // Refresh the timeline to show the new checkpoint
-        timelineRef.current?.refreshTimeline()
-      } else {
-        console.error('Failed to create checkpoint:', result.error)
-      }
-    } catch (error) {
-      console.error('Error creating checkpoint:', error)
-    }
-  }
-
-  const handleCheckpointDelete = async (commitHash: string) => {
-    try {
-      const result = await window.electronAPI.checkpoint.deleteCheckpoint(projectPath, commitHash)
-      if (result.success) {
-        console.log('Checkpoint deleted successfully:', result)
-        // Refresh the timeline to reflect the deletion
-        timelineRef.current?.refreshTimeline()
-      } else {
-        console.error('Failed to delete checkpoint:', result.error)
-      }
-    } catch (error) {
-      console.error('Error deleting checkpoint:', error)
-    }
-  }
-
 
   const handleProjectSelect = (newProject: Project) => {
     // Validate project data before setting
@@ -121,33 +60,13 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         className="flex-shrink-0"
       />
 
-      {/* Two-Column Layout */}
-      <div className="w-full flex-1 flex">
-        {/* Left Sidebar - Project Info & Context */}
-        <ProjectInfoSidebar
-          key={`project-${currentProject?.id || 'none'}`}
-          project={currentProject || undefined}
+      {/* Main Terminal Area */}
+      <div className="flex-1 overflow-hidden">
+        <TerminalContainer
           projectPath={projectPath}
-          selectedCheckpoint={selectedCheckpoint}
-          activeTab={sidebarTab}
-          onTabChange={setSidebarTab}
-          onCheckpointCreate={handleCheckpointCreate}
-          onCheckpointRestore={handleCheckpointRestore}
-          onCheckpointDelete={handleCheckpointDelete}
-          timelineRef={timelineRef}
-          className="flex-shrink-0"
+          project={currentProject || undefined}
+          className="h-full"
         />
-
-        {/* Right Main Area - Terminal */}
-        <div
-          className="flex-1 overflow-hidden flex flex-col"
-        >
-          <TerminalContainer
-            projectPath={projectPath}
-            project={currentProject || undefined}
-            className="flex-1"
-          />
-        </div>
       </div>
     </div>
   )
