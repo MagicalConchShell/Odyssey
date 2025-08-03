@@ -192,7 +192,7 @@ declare global {
         getProjectStats: (projectPath: string) => Promise<ProjectStats>;
       };
 
-      // Pure atomic workspace operations
+      // Business-oriented workspace operations
       workspace: {
         load: (projectId: string) => Promise<ApiResponse<{
           terminals: any[];
@@ -200,20 +200,8 @@ declare global {
           project: Project;
         }>>;
         save: (projectId: string) => Promise<ApiResponse<void>>;
-      };
-
-      // Workspace state handlers
-      workspaceState: {
-        save: (projectPath: string, state: WorkspaceState) => Promise<ApiResponse<void>>;
-        load: (projectPath: string) => Promise<ApiResponse<WorkspaceState | null>>;
-        restore: (projectPath: string) => Promise<ApiResponse<{ activeTerminalId: string | null; terminalCount: number; terminals: any[] }>>;
-        clear: (projectPath: string) => Promise<ApiResponse<void>>;
-        has: (projectPath: string) => Promise<ApiResponse<boolean>>;
-        listProjects: () => Promise<ApiResponse<string[]>>;
-        cleanupOrphaned: () => Promise<ApiResponse<number>>;
-        getProjectMeta: (projectPath: string) => Promise<ApiResponse<ProjectWorkspaceMeta | null>>;
-        createEmpty: () => Promise<ApiResponse<WorkspaceState>>;
-        initialize: (config?: WorkspaceStateConfig) => Promise<ApiResponse<void>>;
+        listProjects: () => Promise<ApiResponse<ProjectWorkspaceMeta[]>>;
+        cleanupOrphanedStates: () => Promise<ApiResponse<number>>;
       };
     };
   }

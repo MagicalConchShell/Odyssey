@@ -1,13 +1,13 @@
-import {IpcMain} from 'electron';
 import {dbManager} from '../services/database-service.js';
 import {usageDataCache} from '../services/usage-analytics-service.js';
-import {registerHandler} from './base-handler.js';
 import {DateUsageStats, ModelUsageStats, ProjectUsageStats, UsageEntry, UsageStats} from '../types/usage.js';
+import { IpcMainInvokeEvent } from 'electron';
 
 /**
  * Create a new usage entry
  */
-async function createUsageEntry(
+export async function createEntry(
+  _event: IpcMainInvokeEvent,
   entryData: Omit<UsageEntry, 'id' | 'created_at'>
 ): Promise<UsageEntry> {
   const entry = await dbManager.createUsageEntry(entryData);
@@ -22,7 +22,7 @@ async function createUsageEntry(
 /**
  * Get all usage entries
  */
-async function getAllUsageEntries(): Promise<UsageEntry[]> {
+export async function getAllEntries(_event: IpcMainInvokeEvent): Promise<UsageEntry[]> {
   return dbManager.getAllUsageEntries();
 }
 
@@ -146,7 +146,7 @@ function calculateUsageStatistics(entries: UsageEntry[]): UsageStats {
 /**
  * Get usage statistics
  */
-async function getUsageStats(): Promise<UsageStats> {
+export async function getStats(_event: IpcMainInvokeEvent): Promise<UsageStats> {
   const allData = await usageDataCache.getCachedUsageData();
   return calculateUsageStatistics(allData);
 }
@@ -154,7 +154,8 @@ async function getUsageStats(): Promise<UsageStats> {
 /**
  * Get usage statistics by date range
  */
-async function getUsageByDateRange(
+export async function getByDateRange(
+  _event: IpcMainInvokeEvent,
   startDate: string,
   endDate: string
 ): Promise<UsageStats> {
@@ -171,68 +172,14 @@ async function getUsageByDateRange(
 /**
  * Clear usage cache
  */
-async function clearUsageCache(): Promise<void> {
+export async function clearCache(_event: IpcMainInvokeEvent): Promise<void> {
   usageDataCache.clearCache();
 }
 
 /**
  * Get cache statistics
  */
-async function getCacheStats(): Promise<any> {
+export async function getCacheStats(_event: IpcMainInvokeEvent): Promise<any> {
   return usageDataCache.getCacheStats();
 }
 
-/**
- * Register all usage analytics related IPC handlers
- */
-export function setupUsageAnalyticsHandlers(ipcMain: IpcMain): void {
-  // Create usage entry
-  registerHandler(
-    ipcMain,
-    'create-usage-entry',
-    createUsageEntry,
-    { requiresValidation: true, timeout: 5000 }
-  );
-
-  // Get all usage entries
-  registerHandler(
-    ipcMain,
-    'get-all-usage-entries',
-    getAllUsageEntries,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  // Get usage statistics
-  registerHandler(
-    ipcMain,
-    'get-usage-stats',
-    getUsageStats,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  // Get usage statistics by date range
-  registerHandler(
-    ipcMain,
-    'get-usage-by-date-range',
-    getUsageByDateRange,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  // Clear usage cache
-  registerHandler(
-    ipcMain,
-    'clear-usage-cache',
-    clearUsageCache,
-    { requiresValidation: false, timeout: 5000 }
-  );
-
-  // Get cache statistics
-  registerHandler(
-    ipcMain,
-    'get-cache-stats',
-    getCacheStats,
-    { requiresValidation: false, timeout: 5000 }
-  );
-
-  
-}

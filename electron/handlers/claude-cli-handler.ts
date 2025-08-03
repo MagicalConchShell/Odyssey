@@ -1,8 +1,7 @@
-import { IpcMain } from 'electron';
-import { registerHandler } from './base-handler.js';
 import { claudeCliManager, ClaudeExecutionOptions, ClaudeExecutionResult, ClaudeCliInfo } from '../services/claude-cli-service.js';
+import { IpcMainInvokeEvent } from 'electron';
 
-async function getClaudeBinaryPath(): Promise<string> {
+export async function getBinaryPath(_event: IpcMainInvokeEvent): Promise<string | null> {
   const claudePath = claudeCliManager.getClaudePath();
   if (claudePath) {
     return claudePath;
@@ -10,14 +9,15 @@ async function getClaudeBinaryPath(): Promise<string> {
   
   // Try to find Claude CLI if not already discovered
   const claudeInfo = await claudeCliManager.findClaudeCli();
-  return claudeInfo.path || '';
+  return claudeInfo.path || null;
 }
 
-async function getClaudeCliInfo(): Promise<ClaudeCliInfo> {
+export async function getInfo(_event: IpcMainInvokeEvent): Promise<ClaudeCliInfo> {
   return await claudeCliManager.findClaudeCli();
 }
 
-async function executeClaudeCommand(
+export async function executeCommand(
+  _event: IpcMainInvokeEvent,
   args: string[],
   options?: ClaudeExecutionOptions
 ): Promise<ClaudeExecutionResult> {
@@ -31,43 +31,9 @@ async function executeClaudeCommand(
   }
 }
 
-async function setClaudeBinaryPath(path: string): Promise<void> {
+export async function setBinaryPath(_event: IpcMainInvokeEvent, path: string): Promise<void> {
   claudeCliManager.setClaudePath(path);
   console.log('Claude binary path set to:', path);
 }
 
-export function setupClaudeCliHandlers(ipcMain: IpcMain): void {
-  registerHandler(
-    ipcMain,
-    'get-claude-binary-path',
-    getClaudeBinaryPath
-  );
 
-  registerHandler(
-    ipcMain,
-    'get-claude-cli-info',
-    getClaudeCliInfo
-  );
-
-  registerHandler(
-    ipcMain,
-    'execute-claude-command',
-    executeClaudeCommand
-  );
-
-  registerHandler(
-    ipcMain,
-    'set-claude-binary-path',
-    setClaudeBinaryPath
-  );
-
-  console.log('✅ Claude CLI handlers registered successfully');
-}
-
-// Export functions for direct use within Electron main process
-export {
-  getClaudeBinaryPath,
-  getClaudeCliInfo,
-  executeClaudeCommand,
-  setClaudeBinaryPath
-};

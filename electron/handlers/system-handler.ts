@@ -1,28 +1,27 @@
-import {IpcMain, shell} from 'electron';
+import {shell, IpcMainInvokeEvent} from 'electron';
 import {spawn} from 'child_process';
 import {writeFile} from 'fs/promises';
 import {join} from 'path';
 import {tmpdir} from 'os';
-import {registerHandler} from './base-handler.js';
 
 /**
  * Simple ping handler for testing
  */
-async function ping(): Promise<string> {
+export async function ping(_event: IpcMainInvokeEvent): Promise<string> {
   return 'pong';
 }
 
 /**
  * Get platform information
  */
-async function getPlatform(): Promise<string> {
+export async function getPlatform(_event: IpcMainInvokeEvent): Promise<string> {
   return process.platform;
 }
 
 /**
  * Capture a screenshot of a webview URL
  */
-async function captureWebviewScreenshot(_url: string): Promise<{ path: string }> {
+export async function captureWebviewScreenshot(_event: IpcMainInvokeEvent, _url: string): Promise<{ path: string }> {
   // This is a placeholder implementation
   // In a real implementation, you would use a headless browser like Puppeteer
   // or integrate with Electron's webContents.capturePage()
@@ -43,7 +42,7 @@ async function captureWebviewScreenshot(_url: string): Promise<{ path: string }>
 /**
  * Open a URL in the default external browser
  */
-async function openExternal(url: string): Promise<void> {
+export async function openExternal(_event: IpcMainInvokeEvent, url: string): Promise<void> {
   await shell.openExternal(url);
 }
 
@@ -138,44 +137,6 @@ async function getEnvironmentVariables(): Promise<Record<string, string>> {
   return process.env as Record<string, string>;
 }
 
-/**
- * Register all system related IPC handlers
- */
-export function setupSystemHandlers(ipcMain: IpcMain): void {
-  // Ping handler for testing
-  registerHandler(
-    ipcMain,
-    'ping',
-    ping,
-    { requiresValidation: false, timeout: 1000 }
-  );
-
-  // Get platform information
-  registerHandler(
-    ipcMain,
-    'get-platform',
-    getPlatform,
-    { requiresValidation: false, timeout: 1000 }
-  );
-
-  // Capture webview screenshot
-  registerHandler(
-    ipcMain,
-    'capture-webview-screenshot',
-    captureWebviewScreenshot,
-    { requiresValidation: true, timeout: 30000 }
-  );
-
-  // Open external URL
-  registerHandler(
-    ipcMain,
-    'open-external',
-    openExternal,
-    { requiresValidation: true, timeout: 5000 }
-  );
-
-  
-}
 
 // Export utility functions for use in other modules
 export { 

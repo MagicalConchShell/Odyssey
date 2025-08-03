@@ -1,9 +1,8 @@
-import { IpcMain } from 'electron';
 import { spawn } from 'child_process';
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
-import { registerHandler } from './base-handler.js';
+import { IpcMainInvokeEvent } from 'electron';
 import {
   McpServer,
   McpServerListCache,
@@ -17,7 +16,7 @@ const MCP_CACHE_TTL = 30 * 1000; // 30 seconds
 /**
  * Get MCP server list with caching
  */
-async function getMcpServerList(): Promise<McpServer[]> {
+export async function list(_event: IpcMainInvokeEvent): Promise<McpServer[]> {
   const now = Date.now();
   
   // Check cache first
@@ -73,17 +72,18 @@ async function getMcpServerList(): Promise<McpServer[]> {
 /**
  * Clear MCP server list cache
  */
-async function clearMcpCache(): Promise<void> {
+export async function clearCache(_event: IpcMainInvokeEvent): Promise<void> {
   mcpServerListCache = null;
 }
 
 /**
  * Add a new MCP server
  */
-async function addMcpServer(
+export async function add(
+  _event: IpcMainInvokeEvent,
   name: string,
-  transport: string,
-  command?: string,
+  command: string,
+  transport?: string,
   args?: string[],
   env?: Record<string, string>,
   url?: string,
@@ -108,7 +108,7 @@ async function addMcpServer(
     }
     
     config.mcpServers[name] = {
-      transport,
+      transport: transport || 'stdio',
       command,
       args: args || [],
       env: env || {},
@@ -130,7 +130,7 @@ async function addMcpServer(
 /**
  * Remove an MCP server
  */
-async function removeMcpServer(name: string): Promise<McpResponse> {
+export async function remove(_event: IpcMainInvokeEvent, name: string): Promise<McpResponse> {
   try {
     const claudeDesktopConfigPath = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
     
@@ -163,9 +163,9 @@ async function removeMcpServer(name: string): Promise<McpResponse> {
 /**
  * Test MCP server connection
  */
-async function testMcpConnection(name: string): Promise<McpResponse> {
+export async function testConnection(_event: IpcMainInvokeEvent, name: string): Promise<McpResponse> {
   // Get server config
-  const servers = await getMcpServerList();
+  const servers = await list(_event);
   
   const server = servers.find(s => s.name === name);
   if (!server) {
@@ -274,8 +274,8 @@ async function testSseConnection(server: McpServer): Promise<McpResponse> {
 /**
  * Import MCP servers from Claude Desktop config
  */
-async function addFromClaudeDesktop(_scope?: string): Promise<McpResponse> {
-  const servers = await getMcpServerList();
+export async function addFromClaudeDesktop(_event: IpcMainInvokeEvent, _configPath?: string): Promise<McpResponse> {
+  const servers = await list(_event);
   
   return { 
     success: true, 
@@ -287,18 +287,20 @@ async function addFromClaudeDesktop(_scope?: string): Promise<McpResponse> {
 /**
  * Add MCP server from JSON config
  */
-async function addMcpFromJson(
+export async function addJson(
+  _event: IpcMainInvokeEvent,
   name: string,
-  jsonConfig: string,
+  configJson: string,
   scope?: string
 ): Promise<McpResponse> {
   try {
-    const config = JSON.parse(jsonConfig);
+    const config = JSON.parse(configJson);
     
-    return addMcpServer(
+    return add(
+      _event,
       name,
-      config.transport || 'stdio',
       config.command,
+      config.transport || 'stdio',
       config.args,
       config.env,
       config.url,
@@ -312,7 +314,7 @@ async function addMcpFromJson(
 /**
  * Serve MCP (placeholder for future implementation)
  */
-async function serveMcp(): Promise<McpResponse> {
+export async function serve(_event: IpcMainInvokeEvent): Promise<McpResponse> {
   try {
     // This would implement MCP server functionality
     return { 
@@ -324,73 +326,3 @@ async function serveMcp(): Promise<McpResponse> {
   }
 }
 
-/**
- * Register all MCP related IPC handlers
- */
-export function setupMcpHandlers(ipcMain: IpcMain): void {
-  // List MCP servers
-  registerHandler(
-    ipcMain,
-    'mcp-list',
-    getMcpServerList,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  // Clear MCP cache
-  registerHandler(
-    ipcMain,
-    'mcp-clear-cache',
-    clearMcpCache,
-    { requiresValidation: false, timeout: 1000 }
-  );
-
-  // Add MCP server
-  registerHandler(
-    ipcMain,
-    'mcp-add',
-    addMcpServer,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  // Remove MCP server
-  registerHandler(
-    ipcMain,
-    'mcp-remove',
-    removeMcpServer,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  // Test MCP connection
-  registerHandler(
-    ipcMain,
-    'mcp-test-connection',
-    testMcpConnection,
-    { requiresValidation: true, timeout: 15000 }
-  );
-
-  // Add from Claude Desktop
-  registerHandler(
-    ipcMain,
-    'mcp-add-from-claude-desktop',
-    addFromClaudeDesktop,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  // Add from JSON
-  registerHandler(
-    ipcMain,
-    'mcp-add-json',
-    addMcpFromJson,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  // Serve MCP
-  registerHandler(
-    ipcMain,
-    'mcp-serve',
-    serveMcp,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  
-}

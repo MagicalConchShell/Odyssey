@@ -6,11 +6,6 @@ import {
   getTerminalExitChannel,
   getTerminalBufferReplayChannel
 } from '../../electron/ipc-channels'
-import {
-  WorkspaceState,
-  terminalToPersistedTerminal,
-  WorkspaceStateValidator
-} from '@/types/workspace'
 import { ProjectSlice } from './projectSlice'
 import { UISlice } from './uiSlice'
 
@@ -49,7 +44,7 @@ export interface TerminalSlice {
   getTerminal: (id: string) => Terminal | undefined
 
   // Session persistence
-  saveTerminalState: (projectPath: string) => Promise<void>
+  saveTerminalState: (projectId: string) => Promise<void>
   setWorkspaceState: (state: { terminals: any[]; activeTerminalId: string | null }) => void
 }
 
@@ -573,43 +568,31 @@ export const createTerminalSlice: StateCreator<
   },
 
   // Session persistence
-  saveTerminalState: async (projectPath) => {
-    if (!projectPath || typeof projectPath !== 'string' || projectPath.trim() === '') {
-      storeLogger.error('[AppStore] Cannot save terminal state: invalid project path', { projectPath })
+  saveTerminalState: async (projectId) => {
+    if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
+      storeLogger.error('[AppStore] Cannot save terminal state: invalid project ID', { projectId })
       return
     }
 
     try {
       const state = get()
       storeLogger.info('[AppStore] 💾 Saving terminal state via backend service', { 
-        projectPath, 
+        projectId, 
         terminalCount: state.terminals.length 
       })
 
-      // Note: Buffer data is now handled automatically by the backend TerminalManagementService
-      // We only need to save basic terminal metadata here since buffers are managed by TerminalInstance
-      const workspaceState: WorkspaceState = {
-        terminals: state.terminals.map(terminal => terminalToPersistedTerminal(terminal)),
-        activeTerminalId: state.activeTerminalId,
-        lastSaved: Date.now(),
-        version: '1.0.0'
-      }
-
-      if (!WorkspaceStateValidator.isValidWorkspaceState(workspaceState)) {
-        storeLogger.error('[AppStore] Invalid workspace state structure, cannot save', { projectPath })
-        return
-      }
-
-      const result = await window.electronAPI.workspaceState.save(projectPath, workspaceState)
+      // Note: Backend TerminalManagementService automatically handles all terminal state extraction
+      // No need to manually construct WorkspaceState object - backend does this internally
+      const result = await window.electronAPI.workspace.save(projectId)
 
       if (result.success) {
-        storeLogger.info('[AppStore] ✅ Terminal state saved successfully', { projectPath })
+        storeLogger.info('[AppStore] ✅ Terminal state saved successfully', { projectId })
       } else {
-        storeLogger.error('[AppStore] Failed to save terminal state via backend', { projectPath, error: result.error })
+        storeLogger.error('[AppStore] Failed to save terminal state via backend', { projectId, error: result.error })
         throw new Error(result.error || 'Unknown error saving workspace state')
       }
     } catch (error) {
-      storeLogger.error('[AppStore] Failed to save terminal state', { projectPath, error })
+      storeLogger.error('[AppStore] Failed to save terminal state', { projectId, error })
       throw error
     }
   },

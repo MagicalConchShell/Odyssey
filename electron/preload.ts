@@ -1,274 +1,126 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import {
-  Project,
-  ApiResponse,
-  ProjectStats,
-  Session,
-  FileResponse,
-  ClaudeMdFile,
-  FileNode,
-  McpServer,
-  McpResponse,
-  UsageEntry,
-  UsageStats,
-  ClaudeCliInfo,
-  ClaudeExecutionOptions,
-  ClaudeExecutionResult,
-  ScreenshotResponse,
-  ProjectCreateRequest,
-  ProjectUpdateRequest,
-  ClaudeProjectImportCandidate
-} from './types/index.js';
-import { FS_CHANNELS, WORKSPACE_STATE_CHANNELS } from './ipc-channels';
-import type {
-  WorkspaceState,
-  ProjectWorkspaceMeta,
-  WorkspaceStateConfig
-} from './types/workspace-state';
+import { IElectronAPI } from './types/api-contract.js';
+import { ApiResponse } from './types/api.js';
 
-// Define the API to be exposed to the renderer process
-export interface IElectronAPI {
-  // System utilities
-  ping: () => Promise<ApiResponse<string>>;
-  getPlatform: () => Promise<ApiResponse<string>>;
-  openExternal: (url: string) => Promise<ApiResponse<void>>;
-  captureWebviewScreenshot: (selector: string) => Promise<ScreenshotResponse>;
+// Helper type that wraps all API methods with ApiResponse
+type WrappedElectronAPI = {
+  [K in keyof IElectronAPI]: IElectronAPI[K] extends (...args: any[]) => Promise<infer R>
+    ? (...args: Parameters<IElectronAPI[K]>) => Promise<ApiResponse<R>>
+    : IElectronAPI[K] extends Record<string, any>
+    ? {
+        [M in keyof IElectronAPI[K]]: IElectronAPI[K][M] extends (...args: any[]) => Promise<infer R>
+          ? (...args: Parameters<IElectronAPI[K][M]>) => Promise<ApiResponse<R>>
+          : IElectronAPI[K][M]
+      }
+    : IElectronAPI[K]
+};
 
-  // Terminal handlers
-  terminal: {
-    create: (workingDirectory: string, shell?: string, projectPath?: string, terminalId?: string) => Promise<ApiResponse<{ terminalId: string }>>;
-    write: (terminalId: string, data: string) => Promise<ApiResponse<void>>;
-    resize: (terminalId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
-    close: (terminalId: string) => Promise<ApiResponse<void>>;
-    info: (terminalId: string) => Promise<ApiResponse<{ isActive: boolean; workingDirectory: string; shell: string }>>;
-    list: () => Promise<ApiResponse<string[]>>;
-    pause: (terminalId: string) => Promise<ApiResponse<void>>;
-    resume: (terminalId: string) => Promise<ApiResponse<void>>;
-    getState: (terminalId: string) => Promise<ApiResponse<any>>;
-    cwdChanged: (terminalId: string, newCwd: string) => Promise<ApiResponse<void>>;
-    registerWebContents: (terminalId: string) => Promise<ApiResponse<void>>;
-    updateCleanBuffer: (terminalId: string, cleanLines: string[]) => Promise<ApiResponse<void>>;
-  };
-
-  // Claude CLI handlers
-  claudeCli: {
-    getBinaryPath: () => Promise<ApiResponse<string | null>>;
-    setBinaryPath: (path: string) => Promise<ApiResponse<void>>;
-    getInfo: () => Promise<ClaudeCliInfo>;
-    executeCommand: (args: string[], options?: ClaudeExecutionOptions) => Promise<ClaudeExecutionResult>;
-  };
-
-  // File system handlers
-  fileSystem: {
-    readFile: (filePath: string) => Promise<FileResponse>;
-    writeFile: (filePath: string, content: string) => Promise<FileResponse>;
-    readDirectory: (dirPath: string) => Promise<ApiResponse<any[]>>;
-    getDirectoryChildren: (dirPath: string) => Promise<ApiResponse<FileNode[]>>;
-    getSystemPrompt: () => Promise<FileResponse>;
-    saveSystemPrompt: (content: string) => Promise<FileResponse>;
-    findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
-    readClaudeMdFile: (filePath: string) => Promise<FileResponse>;
-    saveClaudeMdFile: (filePath: string, content: string) => Promise<FileResponse>;
-    startFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
-    stopFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
-  };
-
-  // Event listeners
-  on?: (channel: string, listener: (...args: any[]) => void) => void;
-  removeListener?: (channel: string, listener: (...args: any[]) => void) => void;
-
-  // Settings handlers
-  settings: {
-    getClaudeSettings: () => Promise<ApiResponse<any>>;
-    saveClaudeSettings: (settings: any) => Promise<ApiResponse<void>>;
-  };
-
-  // MCP handlers
-  mcp: {
-    list: () => Promise<ApiResponse<McpServer[]>>;
-    clearCache: () => Promise<ApiResponse<void>>;
-    add: (name: string, command: string, transport?: string, args?: string[], env?: Record<string, string>, url?: string, scope?: string) => Promise<McpResponse>;
-    remove: (name: string) => Promise<McpResponse>;
-    testConnection: (name: string) => Promise<McpResponse>;
-    addFromClaudeDesktop: (configPath?: string) => Promise<McpResponse>;
-    addJson: (name: string, configJson: string, scope?: string) => Promise<McpResponse>;
-    serve: () => Promise<McpResponse>;
-  };
-
-
-  // Usage analytics handlers
-  usage: {
-    createEntry: (entry: Omit<UsageEntry, 'id' | 'created_at'>) => Promise<ApiResponse<UsageEntry>>;
-    getAllEntries: () => Promise<ApiResponse<UsageEntry[]>>;
-    getStats: () => Promise<ApiResponse<UsageStats>>;
-    getByDateRange: (startDate: string, endDate: string) => Promise<ApiResponse<UsageStats>>;
-    clearCache: () => Promise<ApiResponse<void>>;
-    getCacheStats: () => Promise<ApiResponse<any>>;
-  };
-
-
-  // Project management handlers (pure data operations)
-  projectManagement: {
-    // Pure database-driven project management
-    openFolder: () => Promise<ApiResponse<Project>>;
-    listProjects: () => Promise<ApiResponse<Project[]>>;
-    createProject: (request: ProjectCreateRequest) => Promise<ApiResponse<Project>>;
-    updateProject: (id: string, request: ProjectUpdateRequest) => Promise<ApiResponse<Project>>;
-    deleteProject: (id: string) => Promise<ApiResponse<boolean>>;
-    openProject: (id: string) => Promise<ApiResponse<Project>>;
-    
-    // Claude project import functionality  
-    getClaudeProjectImportCandidates: () => Promise<ApiResponse<ClaudeProjectImportCandidate[]>>;
-    importClaudeProjects: (claudeProjectIds: string[]) => Promise<ApiResponse<{ imported: number, failed: number }>>;
-    
-    // Legacy support
-    getProjectSessions: (projectId: string) => Promise<Session[]>;
-    getProjectStats: (projectPath: string) => Promise<ProjectStats>;
-  };
-
-  // Pure atomic workspace operations
-  workspace: {
-    load: (projectId: string) => Promise<ApiResponse<{
-      terminals: any[];
-      activeTerminalId: string | null;
-      project: Project;
-    }>>;
-    save: (projectId: string) => Promise<ApiResponse<void>>;
-  };
-
-  // Workspace state handlers
-  workspaceState: {
-    save: (projectPath: string, state: WorkspaceState) => Promise<ApiResponse<void>>;
-    load: (projectPath: string) => Promise<ApiResponse<WorkspaceState | null>>;
-    restore: (projectPath: string) => Promise<ApiResponse<{ activeTerminalId: string | null; terminalCount: number; terminals: any[] }>>;
-    clear: (projectPath: string) => Promise<ApiResponse<void>>;
-    has: (projectPath: string) => Promise<ApiResponse<boolean>>;
-    listProjects: () => Promise<ApiResponse<string[]>>;
-    cleanupOrphaned: () => Promise<ApiResponse<number>>;
-    getProjectMeta: (projectPath: string) => Promise<ApiResponse<ProjectWorkspaceMeta | null>>;
-    createEmpty: () => Promise<ApiResponse<WorkspaceState>>;
-    initialize: (config?: WorkspaceStateConfig) => Promise<ApiResponse<void>>;
-  };
+// Helper function to wrap API calls with ApiResponse structure
+function wrapApiCall<T extends (...args: any[]) => Promise<any>>(
+  channel: string
+): (...args: Parameters<T>) => Promise<ApiResponse<Awaited<ReturnType<T>>>> {
+  return (...args: Parameters<T>) => ipcRenderer.invoke(channel, ...args);
 }
 
-const electronAPI: IElectronAPI = {
+// Helper function to wrap API modules
+function wrapApiModule<T extends Record<string, string>>(
+  methods: T
+): { [K in keyof T]: (...args: any[]) => Promise<ApiResponse<any>> } {
+  const wrappedModule = {} as any;
+  
+  for (const methodName in methods) {
+    const channel = methods[methodName];
+    wrappedModule[methodName] = (...args: any[]) => ipcRenderer.invoke(channel, ...args);
+  }
+  
+  return wrappedModule;
+}
+
+const electronAPI: WrappedElectronAPI = {
   // System utilities
-  ping: () => ipcRenderer.invoke('ping'),
-  getPlatform: () => ipcRenderer.invoke('get-platform'),
-  openExternal: (url) => ipcRenderer.invoke('open-external', url),
-  captureWebviewScreenshot: (selector) => ipcRenderer.invoke('capture-webview-screenshot', selector),
+  ping: wrapApiCall('ping'),
+  getPlatform: wrapApiCall('get-platform'),
+  openExternal: wrapApiCall('open-external'),
+  captureWebviewScreenshot: wrapApiCall('capture-webview-screenshot'),
 
   // Terminal handlers
-  terminal: {
-    create: (workingDirectory, shell, projectPath, terminalId) => ipcRenderer.invoke('terminal:create', workingDirectory, shell, projectPath, terminalId),
-    write: (terminalId, data) => ipcRenderer.invoke('terminal:write', terminalId, data),
-    resize: (terminalId, cols, rows) => ipcRenderer.invoke('terminal:resize', terminalId, cols, rows),
-    close: (terminalId) => ipcRenderer.invoke('terminal:close', terminalId),
-    info: (terminalId) => ipcRenderer.invoke('terminal:info', terminalId),
-    list: () => ipcRenderer.invoke('terminal:list'),
-    pause: (terminalId) => ipcRenderer.invoke('terminal:pause', terminalId),
-    resume: (terminalId) => ipcRenderer.invoke('terminal:resume', terminalId),
-    getState: (terminalId) => ipcRenderer.invoke('terminal:getState', terminalId),
-    cwdChanged: (terminalId, newCwd) => ipcRenderer.invoke('terminal:cwd-changed', terminalId, newCwd),
-    registerWebContents: (terminalId) => ipcRenderer.invoke('terminal:register-webcontents', terminalId),
-    updateCleanBuffer: (terminalId, cleanLines) => ipcRenderer.invoke('terminal:update-clean-buffer', terminalId, cleanLines),
-  },
+  terminal: wrapApiModule({
+    create: 'terminal:create',
+    write: 'terminal:write',
+    resize: 'terminal:resize',
+    close: 'terminal:close',
+    info: 'terminal:info',
+    list: 'terminal:list',
+    pause: 'terminal:pause',
+    resume: 'terminal:resume',
+    getState: 'terminal:getState',
+    cwdChanged: 'terminal:cwdChanged',
+    registerWebContents: 'terminal:registerWebContents',
+    updateCleanBuffer: 'terminal:updateCleanBuffer',
+  }),
 
   // Claude CLI handlers
-  claudeCli: {
-    getBinaryPath: () => ipcRenderer.invoke('get-claude-binary-path'),
-    setBinaryPath: (path) => ipcRenderer.invoke('set-claude-binary-path', path),
-    getInfo: () => ipcRenderer.invoke('get-claude-cli-info'),
-    executeCommand: (args, options) => ipcRenderer.invoke('execute-claude-command', args, options),
-  },
-
-  // File system handlers
-  fileSystem: {
-    readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
-    writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
-    readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
-    getDirectoryChildren: (dirPath) => ipcRenderer.invoke(FS_CHANNELS.GET_DIRECTORY_CHILDREN, dirPath),
-    getSystemPrompt: () => ipcRenderer.invoke('get-system-prompt'),
-    saveSystemPrompt: (content) => ipcRenderer.invoke('save-system-prompt', content),
-    findClaudeMdFiles: (directory) => ipcRenderer.invoke('find-claude-md-files', directory),
-    readClaudeMdFile: (filePath) => ipcRenderer.invoke('read-claude-md-file', filePath),
-    saveClaudeMdFile: (filePath, content) => ipcRenderer.invoke('save-claude-md-file', filePath, content),
-    startFileSystemWatcher: (projectPath) => ipcRenderer.invoke('start-file-system-watcher', projectPath),
-    stopFileSystemWatcher: (projectPath) => ipcRenderer.invoke('stop-file-system-watcher', projectPath),
-  },
+  claudeCli: wrapApiModule({
+    getBinaryPath: 'claudeCli:getBinaryPath',
+    setBinaryPath: 'claudeCli:setBinaryPath',
+    getInfo: 'claudeCli:getInfo',
+    executeCommand: 'claudeCli:executeCommand',
+  }),
 
   // Event listeners
   on: (channel, listener) => ipcRenderer.on(channel, listener),
   removeListener: (channel, listener) => ipcRenderer.removeListener(channel, listener),
 
   // Settings handlers
-  settings: {
-    getClaudeSettings: () => ipcRenderer.invoke('get-claude-settings'),
-    saveClaudeSettings: (settings) => ipcRenderer.invoke('save-claude-settings', settings),
-  },
+  settings: wrapApiModule({
+    getClaudeSettings: 'settings:getClaudeSettings',
+    saveClaudeSettings: 'settings:saveClaudeSettings',
+  }),
 
   // MCP handlers
-  mcp: {
-    list: () => ipcRenderer.invoke('mcp-list'),
-    clearCache: () => ipcRenderer.invoke('mcp-clear-cache'),
-    add: (name, command, transport, args, env, url, scope) => ipcRenderer.invoke('mcp-add', name, command, transport, args, env, url, scope),
-    remove: (name) => ipcRenderer.invoke('mcp-remove', name),
-    testConnection: (name) => ipcRenderer.invoke('mcp-test-connection', name),
-    addFromClaudeDesktop: (configPath) => ipcRenderer.invoke('mcp-add-from-claude-desktop', configPath),
-    addJson: (name, configJson, scope) => ipcRenderer.invoke('mcp-add-json', name, configJson, scope),
-    serve: () => ipcRenderer.invoke('mcp-serve'),
-  },
-
+  mcp: wrapApiModule({
+    list: 'mcp:list',
+    clearCache: 'mcp:clearCache',
+    add: 'mcp:add',
+    remove: 'mcp:remove',
+    testConnection: 'mcp:testConnection',
+    addFromClaudeDesktop: 'mcp:addFromClaudeDesktop',
+    addJson: 'mcp:addJson',
+    serve: 'mcp:serve',
+  }),
 
   // Usage analytics handlers
-  usage: {
-    createEntry: (entry) => ipcRenderer.invoke('create-usage-entry', entry),
-    getAllEntries: () => ipcRenderer.invoke('get-all-usage-entries'),
-    getStats: () => ipcRenderer.invoke('get-usage-stats'),
-    getByDateRange: (startDate, endDate) => ipcRenderer.invoke('get-usage-by-date-range', startDate, endDate),
-    clearCache: () => ipcRenderer.invoke('clear-usage-cache'),
-    getCacheStats: () => ipcRenderer.invoke('get-cache-stats'),
-  },
+  usage: wrapApiModule({
+    createEntry: 'usage:createEntry',
+    getAllEntries: 'usage:getAllEntries',
+    getStats: 'usage:getStats',
+    getByDateRange: 'usage:getByDateRange',
+    clearCache: 'usage:clearCache',
+    getCacheStats: 'usage:getCacheStats',
+  }),
 
+  // Project management handlers
+  projectManagement: wrapApiModule({
+    openFolder: 'projectManagement:openFolder',
+    listProjects: 'projectManagement:listProjects',
+    createProject: 'projectManagement:createProject',
+    updateProject: 'projectManagement:updateProject',
+    deleteProject: 'projectManagement:deleteProject',
+    openProject: 'projectManagement:openProject',
+    getClaudeProjectImportCandidates: 'projectManagement:getClaudeProjectImportCandidates',
+    importClaudeProjects: 'projectManagement:importClaudeProjects',
+    getProjectSessions: 'projectManagement:getProjectSessions',
+    getProjectStats: 'projectManagement:getProjectStats',
+  }),
 
-  // Project management handlers (pure data operations)
-  projectManagement: {
-    // Pure database-driven project management
-    openFolder: () => ipcRenderer.invoke('open-folder'),
-    listProjects: () => ipcRenderer.invoke('list-projects'),
-    createProject: (request) => ipcRenderer.invoke('create-project', request),
-    updateProject: (id, request) => ipcRenderer.invoke('update-project', id, request),
-    deleteProject: (id) => ipcRenderer.invoke('delete-project', id),
-    openProject: (id) => ipcRenderer.invoke('open-project', id),
-    
-    // Claude project import functionality
-    getClaudeProjectImportCandidates: () => ipcRenderer.invoke('get-claude-project-import-candidates'),
-    importClaudeProjects: (claudeProjectIds) => ipcRenderer.invoke('import-claude-projects', claudeProjectIds),
-    
-    // Legacy support
-    getProjectSessions: (projectId) => ipcRenderer.invoke('get-project-sessions', projectId),
-    getProjectStats: (projectPath) => ipcRenderer.invoke('get-project-stats', projectPath),
-  },
+  // Business-oriented workspace operations
+  workspace: wrapApiModule({
+    load: 'workspace:load',
+    save: 'workspace:save',
+    listProjects: 'workspace:listProjects',
+    cleanupOrphanedStates: 'workspace:cleanupOrphanedStates',
+  }),
 
-  // Pure atomic workspace operations
-  workspace: {
-    load: (projectId) => ipcRenderer.invoke('workspace:load', projectId),
-    save: (projectId) => ipcRenderer.invoke('workspace:save', projectId),
-  },
-
-  // Workspace state handlers (legacy)
-  workspaceState: {
-    save: (projectPath, state) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.SAVE, projectPath, state),
-    load: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.LOAD, projectPath),
-    restore: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.RESTORE, projectPath),
-    clear: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CLEAR, projectPath),
-    has: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.HAS, projectPath),
-    listProjects: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.LIST_PROJECTS),
-    cleanupOrphaned: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CLEANUP_ORPHANED),
-    getProjectMeta: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.GET_PROJECT_META, projectPath),
-    createEmpty: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CREATE_EMPTY),
-    initialize: (config) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.INITIALIZE, config),
-  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

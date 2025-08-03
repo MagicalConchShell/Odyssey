@@ -1,55 +1,14 @@
 import { IpcMain } from 'electron';
 import { ApiResponse, HandlerConfig, HandlerFunction } from '../types/api.js';
 
-
 /**
  * Common error handling pattern for IPC handlers
- * @param operation - The async operation to execute
- * @param config -
+ * Now simplified since all handlers have the same unified signature with event parameter
+ * @param operation - The async operation to execute with event parameter
+ * @param config - Optional configuration for the handler
  * @returns Promise with success/error result structure
  */
 export function handleIpcOperation<TInput extends any[] = any[], TOutput = any>(
-  operation: (...args: TInput) => Promise<TOutput>,
-  config?: HandlerConfig
-): HandlerFunction<TInput, TOutput> {
-  return async (_event: Electron.IpcMainInvokeEvent, ...args: TInput): Promise<ApiResponse<TOutput>> => {
-    try {
-      // Input validation if required
-      if (config?.requiresValidation) {
-        validateInput(args);
-      }
-
-      // Execute the operation with optional timeout
-      const result = config?.timeout 
-        ? await withTimeout(operation(...args), config.timeout)
-        : await operation(...args);
-
-      return {
-        success: true,
-        data: result
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorCode = error instanceof Error && 'code' in error ? (error as any).code : undefined;
-      
-      console.error(`IPC Handler Error [${config?.name || 'unknown'}]:`, errorMessage);
-      
-      return {
-        success: false,
-        error: errorMessage,
-        errorCode
-      };
-    }
-  };
-}
-
-/**
- * Common error handling pattern for IPC handlers that need event parameter
- * @param operation - The async operation to execute with event parameter
- * @param config -
- * @returns Promise with success/error result structure
- */
-export function handleIpcOperationWithEvent<TInput extends any[] = any[], TOutput = any>(
   operation: (event: Electron.IpcMainInvokeEvent, ...args: TInput) => Promise<TOutput>,
   config?: HandlerConfig
 ): HandlerFunction<TInput, TOutput> {
@@ -114,26 +73,14 @@ function withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
 
 /**
  * Helper to register a handler with consistent error handling
+ * Now simplified since all handlers have the unified signature with event parameter
  */
 export function registerHandler<TInput extends any[] = any[], TOutput = any>(
-  ipcMain: IpcMain,
-  channel: string,
-  handler: (...args: TInput) => Promise<TOutput>,
-  config?: Omit<HandlerConfig, 'name'>
-): void {
-  const wrappedHandler = handleIpcOperation(handler, { name: channel, ...config });
-  ipcMain.handle(channel, wrappedHandler);
-}
-
-/**
- * Helper to register a handler that needs event parameter with consistent error handling
- */
-export function registerHandlerWithEvent<TInput extends any[] = any[], TOutput = any>(
   ipcMain: IpcMain,
   channel: string,
   handler: (event: Electron.IpcMainInvokeEvent, ...args: TInput) => Promise<TOutput>,
   config?: Omit<HandlerConfig, 'name'>
 ): void {
-  const wrappedHandler = handleIpcOperationWithEvent(handler, { name: channel, ...config });
+  const wrappedHandler = handleIpcOperation(handler, { name: channel, ...config });
   ipcMain.handle(channel, wrappedHandler);
 }

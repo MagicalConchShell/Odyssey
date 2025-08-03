@@ -5,7 +5,7 @@
  * All complex logic has been moved to TerminalManagementService - these handlers are just IPC bridges
  */
 
-import { IpcMain, WebContents, IpcMainInvokeEvent } from 'electron'
+import { WebContents, IpcMainInvokeEvent } from 'electron'
 import type { TerminalManagementService } from '../services/terminal-management-service'
 import type { HandlerServices } from './index.js'
 import { 
@@ -13,7 +13,6 @@ import {
   getTerminalExitChannel,
   getTerminalBufferReplayChannel
 } from '../ipc-channels'
-import { registerHandlerWithEvent } from './base-handler.js'
 
 // Service dependencies - injected during setup
 let terminalManagementService: TerminalManagementService;
@@ -27,8 +26,8 @@ const replayingTerminals = new Set<string>()
 /**
  * Create a new terminal session
  */
-async function createTerminal(event: IpcMainInvokeEvent, workingDirectory: string, shell?: string, projectPath?: string): Promise<{ terminalId: string }> {
-  // Generate unique ID on the backend - following common pattern
+export async function createTerminal(event: IpcMainInvokeEvent, workingDirectory: string, shell?: string, projectPath?: string): Promise<{ terminalId: string }> {
+  // Generate unique ID on the backend - following common pattern  
   const id = `terminal_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
   
   console.log(`[TerminalHandler] 🚀 Creating terminal ${id}:`, {
@@ -49,7 +48,7 @@ async function createTerminal(event: IpcMainInvokeEvent, workingDirectory: strin
 /**
  * Write data to a terminal session
  */
-async function writeToTerminal(_event: IpcMainInvokeEvent, terminalId: string, data: string): Promise<void> {
+export async function writeToTerminal(_event: IpcMainInvokeEvent, terminalId: string, data: string): Promise<void> {
   console.log(`[TerminalHandler] 📝 Writing to terminal ${terminalId}:`, {
     dataLength: data.length,
     dataPreview: data.slice(0, 50)
@@ -68,7 +67,7 @@ async function writeToTerminal(_event: IpcMainInvokeEvent, terminalId: string, d
 /**
  * Resize a terminal session
  */
-async function resizeTerminal(_event: IpcMainInvokeEvent, terminalId: string, cols: number, rows: number): Promise<void> {
+export async function resizeTerminal(_event: IpcMainInvokeEvent, terminalId: string, cols: number, rows: number): Promise<void> {
   console.log(`[TerminalHandler] 📏 Resizing terminal ${terminalId}:`, {
     cols,
     rows
@@ -87,7 +86,7 @@ async function resizeTerminal(_event: IpcMainInvokeEvent, terminalId: string, co
 /**
  * Close a terminal session
  */
-async function closeTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
+export async function closeTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
   const success = terminalManagementService.kill(terminalId)
   
   // Clean up WebContents mapping
@@ -101,7 +100,7 @@ async function closeTerminal(_event: IpcMainInvokeEvent, terminalId: string): Pr
 /**
  * Handle CWD changes from OSC sequences
  */
-async function handleCwdChanged(_event: IpcMainInvokeEvent, terminalId: string, newCwd: string): Promise<void> {
+export async function handleCwdChanged(_event: IpcMainInvokeEvent, terminalId: string, newCwd: string): Promise<void> {
   console.log(`[TerminalHandler] 📍 CWD changed for terminal ${terminalId}:`, { newCwd })
   
   const terminal = terminalManagementService.getTerminal(terminalId)
@@ -119,7 +118,7 @@ async function handleCwdChanged(_event: IpcMainInvokeEvent, terminalId: string, 
 /**
  * Update terminal buffer with clean text from frontend XTerm
  */
-async function updateCleanBuffer(_event: IpcMainInvokeEvent, terminalId: string, cleanLines: string[]): Promise<void> {
+export async function updateCleanBuffer(_event: IpcMainInvokeEvent, terminalId: string, cleanLines: string[]): Promise<void> {
   console.log(`[TerminalHandler] 🧽 Updating clean buffer for terminal ${terminalId}:`, { lineCount: cleanLines.length })
   
   const terminal = terminalManagementService.getTerminal(terminalId)
@@ -141,7 +140,7 @@ async function updateCleanBuffer(_event: IpcMainInvokeEvent, terminalId: string,
 /**
  * Register WebContents for a terminal (used during restoration)
  */
-async function registerWebContents(event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
+export async function registerWebContents(event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
   console.log(`[TerminalHandler] 🔗 Registering WebContents for terminal ${terminalId}`)
   
   // Store WebContents for this terminal
@@ -182,24 +181,74 @@ async function registerWebContents(event: IpcMainInvokeEvent, terminalId: string
 }
 
 /**
- * Setup terminal IPC handlers with clean architecture
+ * Get terminal information
  */
-export function setupTerminalHandlers(ipcMain: IpcMain, services: HandlerServices) {
+export async function getTerminalInfo(_event: IpcMainInvokeEvent, terminalId: string): Promise<{ isActive: boolean; workingDirectory: string; shell: string }> {
+  const terminal = terminalManagementService.getTerminal(terminalId)
+  if (!terminal) {
+    throw new Error(`Terminal ${terminalId} not found`)
+  }
+  
+  return {
+    isActive: true, // Simplified - assume active if exists
+    workingDirectory: terminal.getCurrentCwd() || '/tmp',
+    shell: 'bash' // Simplified default
+  }
+}
+
+/**
+ * List all terminal IDs
+ */
+export async function listTerminals(_event: IpcMainInvokeEvent): Promise<string[]> {
+  // Simplified implementation - return empty array for now
+  return []
+}
+
+/**
+ * Pause a terminal session
+ */
+export async function pauseTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
+  // Simplified implementation - no-op for now
+  console.log(`[TerminalHandler] Pause requested for terminal ${terminalId}`)
+}
+
+/**
+ * Resume a terminal session
+ */
+export async function resumeTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
+  // Simplified implementation - no-op for now
+  console.log(`[TerminalHandler] Resume requested for terminal ${terminalId}`)
+}
+
+/**
+ * Get terminal state
+ */
+export async function getTerminalState(_event: IpcMainInvokeEvent, terminalId: string): Promise<any> {
+  const terminal = terminalManagementService.getTerminal(terminalId)
+  if (!terminal) {
+    throw new Error(`Terminal ${terminalId} not found`)
+  }
+  
+  return {
+    id: terminalId,
+    isActive: true,
+    workingDirectory: terminal.getCurrentCwd() || '/tmp',
+    shell: 'bash',
+    buffer: terminal.getBuffer() || []
+  }
+}
+
+/**
+ * Initialize terminal handlers with service dependencies
+ */
+export function initializeTerminalHandlers(services: HandlerServices): void {
   // Inject service dependencies
   terminalManagementService = services.terminalManagementService;
-  // Register terminal handlers using the event-aware pattern
-  registerHandlerWithEvent(ipcMain, 'terminal:create', createTerminal)
-  registerHandlerWithEvent(ipcMain, 'terminal:write', writeToTerminal)
-  registerHandlerWithEvent(ipcMain, 'terminal:resize', resizeTerminal)
-  registerHandlerWithEvent(ipcMain, 'terminal:close', closeTerminal)
-  registerHandlerWithEvent(ipcMain, 'terminal:cwd-changed', handleCwdChanged)
-  registerHandlerWithEvent(ipcMain, 'terminal:register-webcontents', registerWebContents)
-  registerHandlerWithEvent(ipcMain, 'terminal:update-clean-buffer', updateCleanBuffer)
-
+  
   // Set up TerminalManagementService event forwarding
   setupTerminalServiceEvents()
-
-  console.log('✅ Terminal handlers registered with clean architecture')
+  
+  console.log('✅ Terminal handlers initialized with services')
 }
 
 /**

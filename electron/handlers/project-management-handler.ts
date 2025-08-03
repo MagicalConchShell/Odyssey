@@ -1,10 +1,8 @@
-import { IpcMain, dialog } from 'electron';
+import { dialog, IpcMainInvokeEvent } from 'electron';
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
-import { registerHandler } from './base-handler.js';
 import { dbManager } from '../services/database-service.js';
-import type { HandlerServices } from './index.js';
 import {
   Project,
   Session,
@@ -142,7 +140,7 @@ async function validateWorkingDirectory(projectPath: string): Promise<boolean> {
 /**
  * Get project statistics (file count, total size, last modified)
  */
-async function getProjectStats(projectPath: string): Promise<ProjectStats> {
+export async function getProjectStats(_event: IpcMainInvokeEvent, projectPath: string): Promise<ProjectStats> {
   // Validate project path
   const realProjectPath = await resolveProjectPath(projectPath);
   if (!realProjectPath || !(await validateWorkingDirectory(realProjectPath))) {
@@ -225,8 +223,9 @@ async function scanClaudeProjectsForImport(): Promise<ClaudeProjectImportCandida
               const sessionEntries = await readdir(projectPath, { withFileTypes: true });
               const sessionCount = sessionEntries.filter(e => e.name.endsWith('.jsonl')).length;
 
-              // Get project stats
-              const projectStats = await getProjectStats(realProjectPath);
+              // Get project stats - need to pass event parameter but we don't have it in this context
+              // Create a dummy event for internal function calls
+              const projectStats = await getProjectStats(null as any, realProjectPath);
 
               return {
                 name: extractProjectName(realProjectPath),
@@ -263,7 +262,7 @@ async function scanClaudeProjectsForImport(): Promise<ClaudeProjectImportCandida
 /**
  * Open folder dialog and add project to database
  */
-async function openFolder(): Promise<Project> {
+export async function openFolder(_event: IpcMainInvokeEvent): Promise<Project> {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory'],
     title: 'Select Project Folder'
@@ -304,7 +303,7 @@ async function openFolder(): Promise<Project> {
 /**
  * Get all projects from database
  */
-async function listProjects(): Promise<Project[]> {
+export async function listProjects(_event: IpcMainInvokeEvent): Promise<Project[]> {
   const projects = dbManager.getAllProjects();
   return projects;
 }
@@ -312,7 +311,7 @@ async function listProjects(): Promise<Project[]> {
 /**
  * Create a new project
  */
-async function createProject(request: ProjectCreateRequest): Promise<Project> {
+export async function createProject(_event: IpcMainInvokeEvent, request: ProjectCreateRequest): Promise<Project> {
   // Validate path exists
   if (!(await validateWorkingDirectory(request.path))) {
     throw new Error('Invalid project path');
@@ -341,7 +340,7 @@ async function createProject(request: ProjectCreateRequest): Promise<Project> {
 /**
  * Update project
  */
-async function updateProject(id: string, request: ProjectUpdateRequest): Promise<Project> {
+export async function updateProject(_event: IpcMainInvokeEvent, id: string, request: ProjectUpdateRequest): Promise<Project> {
   const project = dbManager.updateProject(id, request);
   if (!project) {
     throw new Error('Project not found');
@@ -352,7 +351,7 @@ async function updateProject(id: string, request: ProjectUpdateRequest): Promise
 /**
  * Delete project
  */
-async function deleteProject(id: string): Promise<boolean> {
+export async function deleteProject(_event: IpcMainInvokeEvent, id: string): Promise<boolean> {
   const success = dbManager.deleteProject(id);
   return success;
 }
@@ -360,7 +359,7 @@ async function deleteProject(id: string): Promise<boolean> {
 /**
  * Open project (updates last opened time)
  */
-async function openProject(id: string): Promise<Project> {
+export async function openProject(_event: IpcMainInvokeEvent, id: string): Promise<Project> {
   const project = dbManager.updateProject(id, {
     last_opened: Date.now()
   });
@@ -373,7 +372,7 @@ async function openProject(id: string): Promise<Project> {
 /**
  * Import Claude projects into database
  */
-async function importClaudeProjects(claudeProjectIds: string[]): Promise<{ imported: number, failed: number }> {
+export async function importClaudeProjects(_event: IpcMainInvokeEvent, claudeProjectIds: string[]): Promise<{ imported: number, failed: number }> {
   const candidates = await scanClaudeProjectsForImport();
   let imported = 0;
   let failed = 0;
@@ -419,7 +418,7 @@ async function importClaudeProjects(claudeProjectIds: string[]): Promise<{ impor
 /**
  * Get Claude project import candidates
  */
-async function getClaudeProjectImportCandidates(): Promise<ClaudeProjectImportCandidate[]> {
+export async function getClaudeProjectImportCandidates(_event: IpcMainInvokeEvent): Promise<ClaudeProjectImportCandidate[]> {
   const candidates = await scanClaudeProjectsForImport();
   return candidates;
 }
@@ -427,7 +426,7 @@ async function getClaudeProjectImportCandidates(): Promise<ClaudeProjectImportCa
 /**
  * Get all sessions for a specific project (legacy support)
  */
-async function getProjectSessions(projectId: string): Promise<Session[]> {
+export async function getProjectSessions(_event: IpcMainInvokeEvent, projectId: string): Promise<Session[]> {
   try {
     const projectPath = join(homedir(), '.claude', 'projects', projectId);
     const entries = await readdir(projectPath, { withFileTypes: true });
@@ -483,82 +482,6 @@ async function getProjectSessions(projectId: string): Promise<Session[]> {
 /**
  * Register all project management related IPC handlers
  */
-export function setupProjectManagementHandlers(ipcMain: IpcMain, _services: HandlerServices): void {
-
-  // New database-driven project management
-  registerHandler(
-    ipcMain,
-    'open-folder',
-    openFolder,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'list-projects',
-    listProjects,
-    { requiresValidation: false, timeout: 10000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'create-project',
-    createProject,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'update-project',
-    updateProject,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'delete-project',
-    deleteProject,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'open-project',
-    openProject,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  // Claude project import functionality
-  registerHandler(
-    ipcMain,
-    'get-claude-project-import-candidates',
-    getClaudeProjectImportCandidates,
-    { requiresValidation: false, timeout: 15000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'import-claude-projects',
-    importClaudeProjects,
-    { requiresValidation: true, timeout: 15000 }
-  );
-
-  // Legacy support for existing functionality
-  registerHandler(
-    ipcMain,
-    'get-project-sessions',
-    getProjectSessions,
-    { requiresValidation: true, timeout: 10000 }
-  );
-
-  registerHandler(
-    ipcMain,
-    'get-project-stats',
-    getProjectStats,
-    { requiresValidation: true, timeout: 15000 }
-  );
-
-}
 
 // Export utility functions for use in other modules
 export { 
