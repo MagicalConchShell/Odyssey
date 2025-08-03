@@ -85,6 +85,9 @@ declare global {
         pause: (terminalId: string) => Promise<ApiResponse<void>>;
         resume: (terminalId: string) => Promise<ApiResponse<void>>;
         getState: (terminalId: string) => Promise<ApiResponse<any>>;
+        cwdChanged: (terminalId: string, newCwd: string) => Promise<ApiResponse<void>>;
+        registerWebContents: (terminalId: string) => Promise<ApiResponse<void>>;
+        updateCleanBuffer: (terminalId: string, cleanLines: string[]) => Promise<ApiResponse<void>>;
       };
 
       // Event listeners
@@ -170,9 +173,9 @@ declare global {
         getGitStatus: (projectPath: string) => Promise<ApiResponse<GitStatusResult>>;
       };
 
-      // Project management handlers
+      // Project management handlers (pure data operations)
       projectManagement: {
-        // New database-driven project management
+        // Pure database-driven project management
         openFolder: () => Promise<ApiResponse<Project>>;
         listProjects: () => Promise<ApiResponse<Project[]>>;
         createProject: (request: ProjectCreateRequest) => Promise<ApiResponse<Project>>;
@@ -189,10 +192,21 @@ declare global {
         getProjectStats: (projectPath: string) => Promise<ProjectStats>;
       };
 
+      // Pure atomic workspace operations
+      workspace: {
+        load: (projectId: string) => Promise<ApiResponse<{
+          terminals: any[];
+          activeTerminalId: string | null;
+          project: Project;
+        }>>;
+        save: (projectId: string) => Promise<ApiResponse<void>>;
+      };
+
       // Workspace state handlers
       workspaceState: {
         save: (projectPath: string, state: WorkspaceState) => Promise<ApiResponse<void>>;
         load: (projectPath: string) => Promise<ApiResponse<WorkspaceState | null>>;
+        restore: (projectPath: string) => Promise<ApiResponse<{ activeTerminalId: string | null; terminalCount: number; terminals: any[] }>>;
         clear: (projectPath: string) => Promise<ApiResponse<void>>;
         has: (projectPath: string) => Promise<ApiResponse<boolean>>;
         listProjects: () => Promise<ApiResponse<string[]>>;

@@ -13,6 +13,9 @@ export interface PersistedTerminal {
   shell?: string;
   createdAt: number;
   isActive: boolean;
+  buffer?: string[]; // Terminal output history lines
+  currentCwd?: string; // Dynamic CWD that may differ from initial cwd
+  runningProcess?: string; // Currently running process name
 }
 
 /**

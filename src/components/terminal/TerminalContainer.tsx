@@ -34,7 +34,8 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   // Terminal mode from unified store
   const terminalMode = useAppStore((state) => state.terminalMode)
   
-  // No need for separate persistence hook - it's all handled in the unified store
+  // Terminal restoration is handled by the project switching flow (setProject -> project:switch)
+  // No need for manual restoration here as it's managed by the unified AppStore
 
   // Handle AI model selection from welcome screen
   const handleModelSelect = useCallback(async (model: 'claude-code' | 'gemini' | 'terminal') => {

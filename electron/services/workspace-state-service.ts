@@ -9,6 +9,7 @@ import type {
   ProjectWorkspaceMeta,
   PersistedTerminal
 } from '../types/workspace-state.js';
+import type { TerminalManagementService } from './terminal-management-service';
 
 
 /**
@@ -22,9 +23,6 @@ export class WorkspaceStateService implements IWorkspaceStateService {
 
   constructor(config: WorkspaceStateConfig = {}) {
     this.baseDir = config.basePath || join(homedir(), '.odyssey', 'workspaces');
-    // Note: autoSave and maxHistorySize are reserved for future features
-    // const autoSave = config.autoSave ?? true;
-    // const maxHistorySize = config.maxHistorySize || 100;
   }
 
   /**
@@ -74,7 +72,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       const projectHash = this.hashProjectPath(projectPath);
       const statePath = this.getWorkspaceStatePath(projectHash);
 
-      // Check if state file exists
+      // Check if a state file exists
       try {
         await fs.access(statePath);
       } catch (error) {
@@ -275,6 +273,87 @@ export class WorkspaceStateService implements IWorkspaceStateService {
   }
 
   /**
+   * Save workspace state from TerminalManagementService
+   * This is a convenience method that extracts terminal state from the service
+   */
+  async saveFromTerminalService(projectPath: string, terminalService: TerminalManagementService, activeTerminalId?: string | null): Promise<void> {
+    try {
+      const serializedTerminals = terminalService.serializeAll();
+      
+      // Convert SerializedTerminalInstance to PersistedTerminal
+      const persistedTerminals: PersistedTerminal[] = serializedTerminals.map(serialized => ({
+        id: serialized.id,
+        title: serialized.title,
+        type: 'terminal', // Default type could be enhanced based on actual terminal type
+        cwd: serialized.cwd,
+        shell: serialized.shell,
+        createdAt: serialized.createdAt,
+        isActive: serialized.isAlive,
+        buffer: serialized.buffer,
+        currentCwd: serialized.currentCwd,
+        runningProcess: serialized.runningProcess
+      }));
+
+      const workspaceState: WorkspaceState = {
+        terminals: persistedTerminals,
+        activeTerminalId: activeTerminalId ?? null,
+        lastSaved: Date.now(),
+        version: '1.0.0'
+      };
+
+      await this.saveWorkspaceState(projectPath, workspaceState);
+      console.log(`✅ Saved workspace state with ${persistedTerminals.length} terminals and ${persistedTerminals.reduce((total, t) => total + (t.buffer?.length || 0), 0)} total buffer lines`);
+    } catch (error: any) {
+      console.error('❌ Failed to save workspace state from terminal service:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Load workspace state and restore to TerminalManagementService
+   * This is a convenience method that loads state and restores terminals
+   */
+  async loadToTerminalService(projectPath: string, terminalService: TerminalManagementService, options: { restoreBuffer?: boolean } = {}): Promise<{ activeTerminalId: string | null; terminalCount: number }> {
+    try {
+      const workspaceState = await this.loadWorkspaceState(projectPath);
+      
+      if (!workspaceState || workspaceState.terminals.length === 0) {
+        console.log('📭 No terminal state to restore');
+        return { activeTerminalId: null, terminalCount: 0 };
+      }
+
+      // Convert PersistedTerminal to SerializedTerminalInstance for restoration
+      const serializedTerminals = workspaceState.terminals.map(persisted => ({
+        id: persisted.id,
+        title: persisted.title,
+        cwd: persisted.cwd,
+        shell: persisted.shell || '',
+        cols: 80, // Default dimensions
+        rows: 30,
+        isAlive: false, // Will be set to true when PTY is created
+        buffer: persisted.buffer || [],
+        createdAt: persisted.createdAt,
+        currentCwd: persisted.currentCwd,
+        runningProcess: persisted.runningProcess
+      }));
+
+      // Restore terminals to the service
+      terminalService.restoreFromSerialized(serializedTerminals, options);
+
+      const totalBufferLines = serializedTerminals.reduce((total, t) => total + t.buffer.length, 0);
+      console.log(`✅ Restored ${serializedTerminals.length} terminals with ${totalBufferLines} total buffer lines`);
+
+      return {
+        activeTerminalId: workspaceState.activeTerminalId,
+        terminalCount: serializedTerminals.length
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to load workspace state to terminal service:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Validate workspace state structure
    */
   private isValidWorkspaceState(state: any): state is WorkspaceState {
@@ -316,12 +395,38 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       }
     }
 
-    return typeof terminal.id === 'string' &&
-           typeof terminal.title === 'string' &&
-           typeof terminal.type === 'string' &&
-           typeof terminal.cwd === 'string' &&
-           typeof terminal.createdAt === 'number' &&
-           typeof terminal.isActive === 'boolean';
+    const isValidBasic = typeof terminal.id === 'string' &&
+                        typeof terminal.title === 'string' &&
+                        typeof terminal.type === 'string' &&
+                        typeof terminal.cwd === 'string' &&
+                        typeof terminal.createdAt === 'number' &&
+                        typeof terminal.isActive === 'boolean';
+
+    if (!isValidBasic) {
+      return false;
+    }
+
+    // Validate buffer if present
+    if (terminal.buffer !== undefined) {
+      if (!Array.isArray(terminal.buffer)) {
+        return false;
+      }
+      // Ensure all buffer entries are strings
+      if (!terminal.buffer.every((line: any) => typeof line === 'string')) {
+        return false;
+      }
+    }
+
+    // Validate optional fields
+    if (terminal.currentCwd !== undefined && typeof terminal.currentCwd !== 'string') {
+      return false;
+    }
+
+    if (terminal.runningProcess !== undefined && typeof terminal.runningProcess !== 'string') {
+      return false;
+    }
+
+    return true;
   }
 
   /**

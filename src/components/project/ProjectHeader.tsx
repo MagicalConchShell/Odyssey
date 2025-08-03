@@ -34,17 +34,28 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
     try {
       setIsLoading(true)
       const result = await window.electronAPI.projectManagement.listProjects()
-      if (result.success) {
-        // Sort: pinned first, then by last_opened
-        const sortedProjects = result.data.sort((a: Project, b: Project) => {
+      if (result.success && Array.isArray(result.data)) {
+        // Filter out any invalid projects and sort: pinned first, then by last_opened
+        const validProjects = result.data.filter((project: Project) => 
+          project && project.id && project.name && project.path
+        )
+        const sortedProjects = validProjects.sort((a: Project, b: Project) => {
           if (a.is_pinned && !b.is_pinned) return -1
           if (!a.is_pinned && b.is_pinned) return 1
           return b.last_opened - a.last_opened
         })
         setProjects(sortedProjects.slice(0, 10)) // Show up to 10 recent projects
+        
+        if (validProjects.length !== result.data.length) {
+          console.warn(`Filtered out ${result.data.length - validProjects.length} invalid projects from list`)
+        }
+      } else {
+        console.error('Invalid project list response:', result)
+        setProjects([])
       }
     } catch (error) {
       console.error('Failed to load projects:', error)
+      setProjects([])
     } finally {
       setIsLoading(false)
     }
@@ -56,8 +67,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
 
   const handleProjectSelect = async (project: Project) => {
     try {
-      // Update last_opened time in database
-      await window.electronAPI.projectManagement.openProject(project.id)
+      // Use the pure project selection - delegates to store's setProject
       onProjectSelect(project)
       // Refresh project list to update order
       loadProjects()

@@ -1,31 +1,5 @@
 import { IpcMain } from 'electron';
-
-/**
- * Standard response format for all IPC handlers
- */
-export interface IpcResponse<T = any> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  errorCode?: string;
-}
-
-/**
- * Base handler configuration
- */
-export interface HandlerConfig {
-  name: string;
-  requiresValidation?: boolean;
-  timeout?: number;
-}
-
-/**
- * Handler function type with proper typing
- */
-export type HandlerFunction<TInput extends any[] = any[], TOutput = any> = (
-  event: Electron.IpcMainInvokeEvent,
-  ...args: TInput
-) => Promise<IpcResponse<TOutput>>;
+import { ApiResponse, HandlerConfig, HandlerFunction } from '../types/api.js';
 
 
 /**
@@ -38,7 +12,7 @@ export function handleIpcOperation<TInput extends any[] = any[], TOutput = any>(
   operation: (...args: TInput) => Promise<TOutput>,
   config?: HandlerConfig
 ): HandlerFunction<TInput, TOutput> {
-  return async (_event: Electron.IpcMainInvokeEvent, ...args: TInput): Promise<IpcResponse<TOutput>> => {
+  return async (_event: Electron.IpcMainInvokeEvent, ...args: TInput): Promise<ApiResponse<TOutput>> => {
     try {
       // Input validation if required
       if (config?.requiresValidation) {
@@ -79,7 +53,7 @@ export function handleIpcOperationWithEvent<TInput extends any[] = any[], TOutpu
   operation: (event: Electron.IpcMainInvokeEvent, ...args: TInput) => Promise<TOutput>,
   config?: HandlerConfig
 ): HandlerFunction<TInput, TOutput> {
-  return async (event: Electron.IpcMainInvokeEvent, ...args: TInput): Promise<IpcResponse<TOutput>> => {
+  return async (event: Electron.IpcMainInvokeEvent, ...args: TInput): Promise<ApiResponse<TOutput>> => {
     try {
       // Input validation if required
       if (config?.requiresValidation) {

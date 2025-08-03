@@ -2,7 +2,7 @@ import {IpcMain} from 'electron';
 import {dbManager} from '../services/database-service.js';
 import {usageDataCache} from '../services/usage-analytics-service.js';
 import {registerHandler} from './base-handler.js';
-import {DateUsageStats, ModelUsageStats, ProjectUsageStats, UsageEntry, UsageStats} from './types.js';
+import {DateUsageStats, ModelUsageStats, ProjectUsageStats, UsageEntry, UsageStats} from '../types/usage.js';
 
 /**
  * Create a new usage entry

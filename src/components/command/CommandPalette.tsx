@@ -78,8 +78,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       const response = await window.electronAPI.projectManagement.listProjects()
       
       if (response.success && Array.isArray(response.data)) {
-        setProjects(response.data)
+        // Filter out any invalid projects
+        const validProjects = response.data.filter((project: Project) => 
+          project && project.id && project.name && project.path
+        )
+        setProjects(validProjects)
+        
+        if (validProjects.length !== response.data.length) {
+          console.warn(`Filtered out ${response.data.length - validProjects.length} invalid projects from command palette`)
+        }
       } else {
+        console.error('Invalid project list response in command palette:', response)
         setProjects([])
       }
     } catch (err) {
@@ -101,15 +110,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     }
   }, [onRefresh, loadProjects])
 
-  // Handle project selection
+  // Handle project selection - delegates to store
   const handleProjectSelect = useCallback(async (project: Project) => {
     try {
-      await window.electronAPI.projectManagement.openProject(project.id)
+      // Delegate to parent component which uses store's setProject
       onSelectProject(project)
     } catch (err) {
-      console.error('Failed to open project:', err)
-      // Still navigate even if update fails
-      onSelectProject(project)
+      console.error('Failed to select project:', err)
     }
   }, [onSelectProject])
 

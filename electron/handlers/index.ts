@@ -7,22 +7,30 @@ import { setupMcpHandlers } from './mcp-handler.js';
 import { setupSystemHandlers } from './system-handler.js';
 import { setupTerminalHandlers } from './terminal-handler.js';
 import { setupWorkspaceStateHandlers } from './workspace-state-handler.js';
+import type { TerminalManagementService } from '../services/terminal-management-service.js';
+import type { WorkspaceStateService } from '../services/workspace-state-service.js';
+
+// Define service dependencies interface
+export interface HandlerServices {
+  terminalManagementService: TerminalManagementService;
+  workspaceStateService: WorkspaceStateService;
+}
 
 /**
  * Register all IPC handlers in the correct order
  */
-export function setupAllHandlers(ipcMain: IpcMain): void {
+export function setupAllHandlers(ipcMain: IpcMain, services: HandlerServices): void {
   console.log('🔧 Setting up IPC handlers...');
   
   // Register all handler modules
   setupSystemHandlers(ipcMain);
   setupClaudeCliHandlers(ipcMain);
-  setupProjectManagementHandlers(ipcMain);
+  setupProjectManagementHandlers(ipcMain, services);
   setupSettingsHandlers(ipcMain);
   setupUsageAnalyticsHandlers(ipcMain);
   setupMcpHandlers(ipcMain);
-  setupWorkspaceStateHandlers(ipcMain);
-  setupTerminalHandlers(ipcMain);
+  setupWorkspaceStateHandlers(ipcMain, services);
+  setupTerminalHandlers(ipcMain, services);
   
   console.log('✅ All IPC handlers registered successfully');
 }
@@ -56,5 +64,5 @@ export { validateSettings, getDefaultSettings, mergeWithDefaults } from './setti
 export { executeCommand, commandExists, getSystemInfo } from './system-handler.js';
 
 // Export all types for external use
-export * from './types.js';
+export * from '../types/index.js';
 export * from './base-handler.js';

@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { registerHandler } from './base-handler.js';
 import {
   ApiResponse
-} from './types.js';
+} from '../types/api.js';
 
 /**
  * Get Claude settings from ~/.claude/settings.json

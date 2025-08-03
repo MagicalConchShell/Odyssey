@@ -18,7 +18,7 @@ import {
   ProjectCreateRequest,
   ProjectUpdateRequest,
   ClaudeProjectImportCandidate
-} from './handlers/types';
+} from './types/index.js';
 import { FS_CHANNELS, WORKSPACE_STATE_CHANNELS } from './ipc-channels';
 import type {
   WorkspaceState,
@@ -45,6 +45,9 @@ export interface IElectronAPI {
     pause: (terminalId: string) => Promise<ApiResponse<void>>;
     resume: (terminalId: string) => Promise<ApiResponse<void>>;
     getState: (terminalId: string) => Promise<ApiResponse<any>>;
+    cwdChanged: (terminalId: string, newCwd: string) => Promise<ApiResponse<void>>;
+    registerWebContents: (terminalId: string) => Promise<ApiResponse<void>>;
+    updateCleanBuffer: (terminalId: string, cleanLines: string[]) => Promise<ApiResponse<void>>;
   };
 
   // Claude CLI handlers
@@ -104,9 +107,9 @@ export interface IElectronAPI {
   };
 
 
-  // Project management handlers
+  // Project management handlers (pure data operations)
   projectManagement: {
-    // New database-driven project management
+    // Pure database-driven project management
     openFolder: () => Promise<ApiResponse<Project>>;
     listProjects: () => Promise<ApiResponse<Project[]>>;
     createProject: (request: ProjectCreateRequest) => Promise<ApiResponse<Project>>;
@@ -123,10 +126,21 @@ export interface IElectronAPI {
     getProjectStats: (projectPath: string) => Promise<ProjectStats>;
   };
 
+  // Pure atomic workspace operations
+  workspace: {
+    load: (projectId: string) => Promise<ApiResponse<{
+      terminals: any[];
+      activeTerminalId: string | null;
+      project: Project;
+    }>>;
+    save: (projectId: string) => Promise<ApiResponse<void>>;
+  };
+
   // Workspace state handlers
   workspaceState: {
     save: (projectPath: string, state: WorkspaceState) => Promise<ApiResponse<void>>;
     load: (projectPath: string) => Promise<ApiResponse<WorkspaceState | null>>;
+    restore: (projectPath: string) => Promise<ApiResponse<{ activeTerminalId: string | null; terminalCount: number; terminals: any[] }>>;
     clear: (projectPath: string) => Promise<ApiResponse<void>>;
     has: (projectPath: string) => Promise<ApiResponse<boolean>>;
     listProjects: () => Promise<ApiResponse<string[]>>;
@@ -155,6 +169,9 @@ const electronAPI: IElectronAPI = {
     pause: (terminalId) => ipcRenderer.invoke('terminal:pause', terminalId),
     resume: (terminalId) => ipcRenderer.invoke('terminal:resume', terminalId),
     getState: (terminalId) => ipcRenderer.invoke('terminal:getState', terminalId),
+    cwdChanged: (terminalId, newCwd) => ipcRenderer.invoke('terminal:cwd-changed', terminalId, newCwd),
+    registerWebContents: (terminalId) => ipcRenderer.invoke('terminal:register-webcontents', terminalId),
+    updateCleanBuffer: (terminalId, cleanLines) => ipcRenderer.invoke('terminal:update-clean-buffer', terminalId, cleanLines),
   },
 
   // Claude CLI handlers
@@ -214,9 +231,9 @@ const electronAPI: IElectronAPI = {
   },
 
 
-  // Project management handlers
+  // Project management handlers (pure data operations)
   projectManagement: {
-    // New database-driven project management
+    // Pure database-driven project management
     openFolder: () => ipcRenderer.invoke('open-folder'),
     listProjects: () => ipcRenderer.invoke('list-projects'),
     createProject: (request) => ipcRenderer.invoke('create-project', request),
@@ -233,10 +250,17 @@ const electronAPI: IElectronAPI = {
     getProjectStats: (projectPath) => ipcRenderer.invoke('get-project-stats', projectPath),
   },
 
-  // Workspace state handlers
+  // Pure atomic workspace operations
+  workspace: {
+    load: (projectId) => ipcRenderer.invoke('workspace:load', projectId),
+    save: (projectId) => ipcRenderer.invoke('workspace:save', projectId),
+  },
+
+  // Workspace state handlers (legacy)
   workspaceState: {
     save: (projectPath, state) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.SAVE, projectPath, state),
     load: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.LOAD, projectPath),
+    restore: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.RESTORE, projectPath),
     clear: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.CLEAR, projectPath),
     has: (projectPath) => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.HAS, projectPath),
     listProjects: () => ipcRenderer.invoke(WORKSPACE_STATE_CHANNELS.LIST_PROJECTS),

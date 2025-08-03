@@ -3,10 +3,13 @@
  * 
  * This service implements the SOTA architecture from terminal_architecture_v1.md
  * It handles ONLY PTY process management - no UI knowledge, no complex recovery logic
+ * Enhanced with shell integration for real-time CWD tracking via OSC sequences
  */
 
 import * as pty from 'node-pty'
 import { EventEmitter } from 'events'
+import { join, dirname } from 'path'
+import { existsSync } from 'fs'
 
 interface PtyInstance {
   id: string
@@ -34,7 +37,69 @@ export class PtyService extends EventEmitter {
   }
 
   /**
-   * Create a new PTY process
+   * Get the shell integration script path based on shell type
+   */
+  private getShellIntegrationScript(shell: string): string | null {
+    const scriptsDir = join(dirname(__dirname), 'scripts')
+    
+    // Determine script based on shell type
+    let scriptName: string | null = null
+    
+    if (shell.includes('zsh')) {
+      scriptName = 'odyssey-integration.zsh'
+    } else if (shell.includes('bash')) {
+      scriptName = 'odyssey-integration.bash'
+    } else {
+      // For other shells, try bash as fallback
+      scriptName = 'odyssey-integration.bash'
+    }
+    
+    const scriptPath = join(scriptsDir, scriptName)
+    
+    // Check if script exists
+    if (existsSync(scriptPath)) {
+      return scriptPath
+    }
+    
+    console.warn(`[PtyService] Shell integration script not found: ${scriptPath}`)
+    return null
+  }
+
+  /**
+   * Create shell command with integration script injection
+   */
+  private createShellCommand(shell: string): { command: string; args: string[] } {
+    const integrationScript = this.getShellIntegrationScript(shell)
+    
+    if (!integrationScript) {
+      // No integration available, use shell directly
+      return { command: shell, args: [] }
+    }
+    
+    // Create shell command that sources the integration script
+    if (shell.includes('zsh')) {
+      // For ZSH: start with login shell and source integration
+      return {
+        command: shell,
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; exec zsh`]
+      }
+    } else if (shell.includes('bash')) {
+      // For Bash: start with login shell and source integration
+      return {
+        command: shell,
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; exec bash`]
+      }
+    } else {
+      // For other shells, try bash approach as fallback
+      return {
+        command: shell,
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; exec "${shell}"`]
+      }
+    }
+  }
+
+  /**
+   * Create a new PTY process with shell integration
    */
   create(id: string, shell: string, cwd: string, cols: number = 80, rows: number = 30): void {
     // Clean up any existing PTY with the same ID
@@ -49,8 +114,11 @@ export class PtyService extends EventEmitter {
     
     const selectedShell = shell || defaultShell
 
-    // Create PTY process
-    const ptyProcess = pty.spawn(selectedShell, [], {
+    // Create shell command with integration script injection
+    const { command, args } = this.createShellCommand(selectedShell)
+
+    // Create PTY process with integration
+    const ptyProcess = pty.spawn(command, args, {
       cwd: cwd,
       env: {
         ...process.env,
@@ -87,7 +155,7 @@ export class PtyService extends EventEmitter {
       this.ptyMap.delete(id)
     })
 
-    console.log(`[PtyService] Created PTY ${id} with shell ${selectedShell} in ${cwd}`)
+    console.log(`[PtyService] Created PTY ${id} with shell ${selectedShell} in ${cwd} (integration: ${args.length > 0 ? 'enabled' : 'disabled'})`)
   }
 
   /**

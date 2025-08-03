@@ -1,22 +1,18 @@
 import { IpcMain } from 'electron';
 import { WorkspaceStateService } from '../services/workspace-state-service.js';
+import type { TerminalManagementService } from '../services/terminal-management-service.js';
 import { registerHandler } from './base-handler.js';
-import { ApiResponse } from './types.js';
+import { ApiResponse } from '../types/api.js';
+import type { HandlerServices } from './index.js';
 import type {
   WorkspaceState,
   ProjectWorkspaceMeta,
   WorkspaceStateConfig
 } from '../types/workspace-state.js';
 
-// Create a singleton service instance
-let workspaceStateService: WorkspaceStateService | null = null;
-
-function getWorkspaceStateService(): WorkspaceStateService {
-  if (!workspaceStateService) {
-    workspaceStateService = new WorkspaceStateService();
-  }
-  return workspaceStateService;
-}
+// Service dependencies - injected during setup
+let workspaceStateService: WorkspaceStateService;
+let terminalManagementService: TerminalManagementService;
 
 /**
  * Save workspace state for a project
@@ -35,7 +31,7 @@ async function saveWorkspaceState(
       return { success: false, error: 'Invalid workspace state provided' };
     }
 
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     await service.saveWorkspaceState(projectPath, state);
 
     return { success: true };
@@ -57,7 +53,7 @@ async function loadWorkspaceState(
       return { success: false, error: 'Invalid project path provided' };
     }
 
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     const state = await service.loadWorkspaceState(projectPath);
 
     return { success: true, data: state };
@@ -79,7 +75,7 @@ async function clearWorkspaceState(
       return { success: false, error: 'Invalid project path provided' };
     }
 
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     await service.clearWorkspaceState(projectPath);
 
     return { success: true };
@@ -101,7 +97,7 @@ async function hasWorkspaceState(
       return { success: false, error: 'Invalid project path provided' };
     }
 
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     const exists = await service.hasWorkspaceState(projectPath);
 
     return { success: true, data: exists };
@@ -116,7 +112,7 @@ async function hasWorkspaceState(
  */
 async function listWorkspaceProjects(): Promise<ApiResponse<string[]>> {
   try {
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     const projects = await service.listWorkspaceProjects();
 
     return { success: true, data: projects };
@@ -131,7 +127,7 @@ async function listWorkspaceProjects(): Promise<ApiResponse<string[]>> {
  */
 async function cleanupOrphanedStates(): Promise<ApiResponse<number>> {
   try {
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     const cleanedCount = await service.cleanupOrphanedStates();
 
     return { success: true, data: cleanedCount };
@@ -153,7 +149,7 @@ async function getProjectMeta(
       return { success: false, error: 'Invalid project path provided' };
     }
 
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     const meta = await service.getProjectMeta(projectPath);
 
     return { success: true, data: meta };
@@ -168,7 +164,7 @@ async function getProjectMeta(
  */
 async function createEmptyState(): Promise<ApiResponse<WorkspaceState>> {
   try {
-    const service = getWorkspaceStateService();
+    const service = workspaceStateService;
     const emptyState = service.createEmptyState();
 
     return { success: true, data: emptyState };
@@ -176,6 +172,138 @@ async function createEmptyState(): Promise<ApiResponse<WorkspaceState>> {
     console.error('Failed to create empty state:', error.message);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * Pure workspace load operation - only loads state
+ */
+async function workspaceLoad(
+  projectId: string
+): Promise<{ terminals: any[]; activeTerminalId: string | null; project: any }> {
+  // Validate inputs
+  if (!projectId || typeof projectId !== 'string') {
+    throw new Error('Invalid project ID provided');
+  }
+
+  // Import database manager to get project info
+  const { dbManager } = await import('../services/database-service.js');
+  
+  // Get project from database
+  const project = dbManager.getProject(projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+
+  const service = workspaceStateService;
+  
+  console.log(`📥 Loading workspace state for project: ${project.path}`);
+  
+  // Clean current terminals
+  terminalManagementService.cleanup();
+  
+  // Load and restore terminals to backend service
+  const result = await service.loadToTerminalService(
+    project.path, 
+    terminalManagementService, 
+    { restoreBuffer: true }
+  );
+
+  // Update project's last_opened timestamp
+  const updatedProject = dbManager.updateProject(projectId, {
+    last_opened: Date.now()
+  });
+
+  if (!updatedProject) {
+    throw new Error('Failed to update project timestamp');
+  }
+
+  // Get serialized terminals for frontend
+  const serializedTerminals = terminalManagementService.serializeAll();
+  
+  console.log(`✅ Loaded workspace: ${result.terminalCount} terminals restored`);
+  
+  return {
+    terminals: Array.isArray(serializedTerminals) ? serializedTerminals : [],
+    activeTerminalId: result.activeTerminalId || null,
+    project: updatedProject
+  };
+}
+
+/**
+ * Pure workspace save operation - only saves state
+ */
+async function workspaceSave(
+  projectId: string
+): Promise<void> {
+  // Validate inputs
+  if (!projectId || typeof projectId !== 'string') {
+    throw new Error('Invalid project ID provided');
+  }
+
+  // Import database manager to get project info
+  const { dbManager } = await import('../services/database-service.js');
+  
+  // Get project from database
+  const project = dbManager.getProject(projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+
+  const service = workspaceStateService;
+  
+  console.log(`💾 Saving workspace state for project: ${project.path}`);
+  
+  // Save current terminal state
+  await service.saveFromTerminalService(
+    project.path, 
+    terminalManagementService
+  );
+  
+  console.log(`✅ Saved workspace state for project: ${project.path}`);
+}
+
+/**
+ * Restore workspace state and synchronize with terminal service
+ * @deprecated Use workspaceLoad instead
+ */
+async function restoreWorkspaceState(
+  projectPath: string
+): Promise<{ activeTerminalId: string | null; terminalCount: number; terminals: any[] }> {
+  // Validate inputs
+  if (!projectPath || typeof projectPath !== 'string') {
+    throw new Error('Invalid project path provided');
+  }
+
+  const service = workspaceStateService;
+  
+  console.log(`🔄 Restoring workspace state for project: ${projectPath}`);
+  
+  // Load and restore terminals to backend service
+  const result = await service.loadToTerminalService(
+    projectPath, 
+    terminalManagementService, 
+    { restoreBuffer: true }
+  );
+
+  if (result.terminalCount === 0) {
+    console.log('📭 No terminals to restore');
+    return { 
+      activeTerminalId: null, 
+      terminalCount: 0, 
+      terminals: [] 
+    };
+  }
+
+  // Get serialized terminals for frontend
+  const serializedTerminals = terminalManagementService.serializeAll();
+  
+  console.log(`✅ Restored ${result.terminalCount} terminals with buffer history`);
+  
+  return {
+    activeTerminalId: result.activeTerminalId,
+    terminalCount: result.terminalCount,
+    terminals: serializedTerminals
+  };
 }
 
 /**
@@ -198,8 +326,12 @@ async function initializeService(
 /**
  * Register all workspace state related IPC handlers
  */
-export function setupWorkspaceStateHandlers(ipcMain: IpcMain): void {
+export function setupWorkspaceStateHandlers(ipcMain: IpcMain, services: HandlerServices): void {
   console.log('🔧 Setting up workspace state handlers...');
+  
+  // Inject service dependencies
+  workspaceStateService = services.workspaceStateService;
+  terminalManagementService = services.terminalManagementService;
 
   // Core state operations
   registerHandler(
@@ -256,6 +388,26 @@ export function setupWorkspaceStateHandlers(ipcMain: IpcMain): void {
     ipcMain,
     'workspace-state:initialize',
     initializeService
+  );
+
+  // Pure atomic operations
+  registerHandler(
+    ipcMain,
+    'workspace:load',
+    workspaceLoad
+  );
+
+  registerHandler(
+    ipcMain,
+    'workspace:save',
+    workspaceSave
+  );
+
+  // Terminal restoration (deprecated)
+  registerHandler(
+    ipcMain,
+    'workspace-state:restore',
+    restoreWorkspaceState
   );
 
   console.log('✅ Workspace state handlers registered successfully');

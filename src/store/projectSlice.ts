@@ -64,7 +64,7 @@ export const createProjectSlice: StateCreator<
   projectPath: '',
   projectSettings: initialProjectSettings,
 
-  // Core project switching action - this is the key improvement
+  // Pure atomic project switching - uses workspace:save + workspace:load
   setProject: async (newProject: Project) => {
     // Validate project data first
     if (!newProject || !newProject.path || newProject.path.trim() === '') {
@@ -72,85 +72,73 @@ export const createProjectSlice: StateCreator<
       throw new Error('Invalid project data: missing path')
     }
 
-    const normalizedPath = newProject.path.trim()
-    const currentPath = get().projectPath
+    const currentProject = get().currentProject
 
     // Skip if the project is already selected
-    if (normalizedPath === currentPath && get().currentProject?.id === newProject.id) {
-      console.log('[AppStore] Project already selected, skipping switch:', normalizedPath)
+    if (currentProject?.id === newProject.id) {
+      console.log('[AppStore] Project already selected, skipping switch:', newProject.name)
       return
     }
 
-    console.log('[AppStore] Starting project switch:', { 
-      from: currentPath, 
-      to: normalizedPath 
+    console.log('[AppStore] Starting pure atomic project switch:', { 
+      from: currentProject?.name || 'none', 
+      to: newProject.name 
     })
 
-    let operationSuccessful = false
-
     try {
-      const oldProjectPath = get().projectPath
-
-      // 1. Save current project's terminal state (if exists)
-      if (oldProjectPath && oldProjectPath.trim() !== '') {
-        console.log('[AppStore] Saving terminal state for previous project:', oldProjectPath)
-        try {
-          await get().saveTerminalState(oldProjectPath)
-        } catch (error) {
-          console.warn('[AppStore] Failed to save terminal state for previous project:', error)
-          // Continue with project switch even if save fails
-        }
+      // Step 1: Save current project state (if exists)
+      if (currentProject?.id) {
+        console.log(`[AppStore] Saving current project state: ${currentProject.name}`)
+        await window.electronAPI.workspace.save(currentProject.id)
+        console.log(`[AppStore] ✅ Saved current project state`)
       }
 
-      // 2. Clear all current terminal instances and state
-      console.log('[AppStore] Clearing all terminal instances')
-      try {
-        get().clearAll()
-      } catch (error) {
-        console.warn('[AppStore] Failed to clear terminals:', error)
-        // Continue with project switch
+      // Step 2: Load new project state
+      console.log(`[AppStore] Loading new project state: ${newProject.name}`)
+      const result = await window.electronAPI.workspace.load(newProject.id)
+
+      if (!result.success) {
+        throw new Error(result.error || 'Workspace load failed')
       }
 
-      // 3. Update project state atomically
-      console.log('[AppStore] Updating project state')
+      const { terminals, activeTerminalId, project } = result.data
+
+      console.log(`[AppStore] ✅ Loaded project: ${terminals.length} terminals restored`)
+
+      // Step 3: Apply complete state atomically
       set({
-        currentProject: { ...newProject, path: normalizedPath },
-        projectPath: normalizedPath,
-        projectSettings: { ...initialProjectSettings, ...newProject.settings },
+        currentProject: project,
+        projectPath: project.path,
+        projectSettings: { ...initialProjectSettings, ...project.settings },
         // Reset related UI state
         sidebarTab: 'files',
-        terminalMode: 'welcome'
+        terminalMode: terminals.length > 0 ? 'active' : 'welcome'
       })
 
-      // 4. Load new project's terminal state and restore sessions
-      console.log('[AppStore] Loading terminal state for new project:', normalizedPath)
-      try {
-        await get().loadTerminalState(normalizedPath)
-        await get().restoreTerminalSessions()
-      } catch (error) {
-        console.warn('[AppStore] Failed to restore terminal state:', error)
-        // Continue - user can manually create terminals
+      // Step 4: Apply terminal state
+      const setWorkspaceState = get().setWorkspaceState
+      if (setWorkspaceState) {
+        setWorkspaceState({
+          terminals: terminals,
+          activeTerminalId: activeTerminalId
+        })
+      } else {
+        console.warn('[AppStore] setWorkspaceState action not available, terminals may not be properly restored')
       }
 
-      // Persistence is now handled automatically by persist middleware
-
-      operationSuccessful = true
-      console.log('[AppStore] Project switch completed successfully')
+      console.log('[AppStore] ✅ Pure atomic project switch completed successfully')
     } catch (error) {
-      console.error('[AppStore] Error during project switch:', error)
+      console.error('[AppStore] Error during pure atomic project switch:', error)
       
-      // Failsafe: If operation failed, try to restore a minimal state
-      if (!operationSuccessful) {
-        console.log('[AppStore] Attempting to restore minimal state after failure')
-        try {
-          set({
-            currentProject: null,
-            projectPath: '',
-            terminalMode: 'welcome'
-          })
-        } catch (failsafeError) {
-          console.error('[AppStore] Failsafe state restoration also failed:', failsafeError)
-        }
+      // Failsafe: Reset to minimal state on failure
+      try {
+        set({
+          currentProject: null,
+          projectPath: '',
+          terminalMode: 'welcome'
+        })
+      } catch (failsafeError) {
+        console.error('[AppStore] Failsafe state restoration also failed:', failsafeError)
       }
       
       throw error

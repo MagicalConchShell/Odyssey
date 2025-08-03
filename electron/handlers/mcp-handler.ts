@@ -8,7 +8,7 @@ import {
   McpServer,
   McpServerListCache,
   McpResponse
-} from './types.js';
+} from '../types/mcp.js';
 
 // Cache for MCP server list
 let mcpServerListCache: McpServerListCache | null = null;

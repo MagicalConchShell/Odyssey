@@ -17,6 +17,9 @@ export interface PersistedTerminal {
   shell?: string;
   createdAt: number;
   isActive: boolean;
+  buffer?: string[]; // Terminal output history lines
+  currentCwd?: string; // Dynamic CWD that may differ from initial cwd
+  runningProcess?: string; // Currently running process name
 }
 
 /**
@@ -52,7 +55,7 @@ export interface ProjectWorkspaceMeta {
 /**
  * Utility type for converting Terminal to PersistedTerminal
  */
-export function terminalToPersistedTerminal(terminal: Terminal): PersistedTerminal {
+export function terminalToPersistedTerminal(terminal: Terminal, buffer?: string[], currentCwd?: string, runningProcess?: string): PersistedTerminal {
   return {
     id: terminal.id,
     title: terminal.title,
@@ -61,6 +64,9 @@ export function terminalToPersistedTerminal(terminal: Terminal): PersistedTermin
     shell: terminal.shell,
     createdAt: terminal.createdAt,
     isActive: terminal.isActive,
+    buffer: buffer, // Include buffer data if provided
+    currentCwd: currentCwd, // Include dynamic CWD if provided
+    runningProcess: runningProcess, // Include running process if provided
   };
 }
 
@@ -141,12 +147,38 @@ export class WorkspaceStateValidator {
       }
     }
 
-    return typeof terminal.id === 'string' &&
-           typeof terminal.title === 'string' &&
-           typeof terminal.type === 'string' &&
-           typeof terminal.cwd === 'string' &&
-           typeof terminal.createdAt === 'number' &&
-           typeof terminal.isActive === 'boolean';
+    const isValidBasic = typeof terminal.id === 'string' &&
+                        typeof terminal.title === 'string' &&
+                        typeof terminal.type === 'string' &&
+                        typeof terminal.cwd === 'string' &&
+                        typeof terminal.createdAt === 'number' &&
+                        typeof terminal.isActive === 'boolean';
+
+    if (!isValidBasic) {
+      return false;
+    }
+
+    // Validate buffer if present
+    if (terminal.buffer !== undefined) {
+      if (!Array.isArray(terminal.buffer)) {
+        return false;
+      }
+      // Ensure all buffer entries are strings
+      if (!terminal.buffer.every((line: any) => typeof line === 'string')) {
+        return false;
+      }
+    }
+
+    // Validate optional fields
+    if (terminal.currentCwd !== undefined && typeof terminal.currentCwd !== 'string') {
+      return false;
+    }
+
+    if (terminal.runningProcess !== undefined && typeof terminal.runningProcess !== 'string') {
+      return false;
+    }
+
+    return true;
   }
 
   /**

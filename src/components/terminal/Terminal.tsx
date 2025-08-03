@@ -160,7 +160,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
 
     // Only create event handlers if needed (to prevent duplicates)
-    let inputDisposable, resizeDisposable
+    let inputDisposable, resizeDisposable, oscDisposable
 
     if (needsEventHandlers) {
       // Handle user input - write to backend
@@ -172,12 +172,42 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       resizeDisposable = terminal.onResize(({cols, rows}) => {
         resizeTerminal(terminalId, cols, rows)
       })
+
+      // Handle OSC sequences for shell integration (CWD tracking)
+      oscDisposable = terminal.parser.registerOscHandler(633, (data: string) => {
+        try {
+          // Parse our custom OSC 633 sequence for CWD updates
+          // Format: P;Cwd=file://hostname/path
+          if (data.startsWith('P;Cwd=file://')) {
+            const cwdMatch = data.match(/P;Cwd=file:\/\/[^\/]*(.+)/)
+            if (cwdMatch && cwdMatch[1]) {
+              const newCwd = cwdMatch[1]
+              
+              // Send CWD update to backend via IPC
+              if (window.electronAPI && window.electronAPI.terminal.cwdChanged) {
+                window.electronAPI.terminal.cwdChanged(terminalId, newCwd)
+                  .catch((error: any) => {
+                    console.error('Failed to send CWD update:', error)
+                  })
+              }
+              
+              terminalLogger.debug('CWD updated via OSC sequence', { terminalId, newCwd })
+            }
+          }
+          
+          // Return true to prevent the sequence from being displayed
+          return true
+        } catch (error) {
+          console.error('Error parsing OSC sequence:', error)
+          return false
+        }
+      })
     }
 
     // Create or update instance object
     if (instance) {
       // Update existing instance with new event handlers
-      instance.disposables = [inputDisposable, resizeDisposable].filter(Boolean)
+      instance.disposables = [inputDisposable, resizeDisposable, oscDisposable].filter(Boolean)
     } else {
       // Create new instance object
       instance = {
@@ -185,7 +215,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
         fitAddon,
         searchAddon,
         webglAddon,
-        disposables: [inputDisposable, resizeDisposable],
+        disposables: [inputDisposable, resizeDisposable, oscDisposable],
         isAttached: false
       }
     }
@@ -205,6 +235,19 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       terminalLogger.debug('Attaching terminal to DOM', {terminalId})
       instance.xterm.open(terminalRef.current)
       instance.isAttached = true
+
+      // Register WebContents for backend communication (critical for terminal recovery)
+      if (window.electronAPI?.terminal?.registerWebContents) {
+        window.electronAPI.terminal.registerWebContents(terminalId)
+          .then(() => {
+            terminalLogger.debug('WebContents registered successfully', {terminalId})
+          })
+          .catch((error) => {
+            terminalLogger.error('Failed to register WebContents', {terminalId, error})
+          })
+      } else {
+        terminalLogger.warn('registerWebContents API not available', {terminalId})
+      }
 
       // Fit terminal to container once after attachment
       setTimeout(() => {

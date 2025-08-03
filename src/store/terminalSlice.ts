@@ -3,12 +3,12 @@ import { Terminal, CreateTerminalOptions } from '@/types/terminal'
 import { storeLogger } from '@/utils/logger'
 import {
   getTerminalDataChannel,
-  getTerminalExitChannel
+  getTerminalExitChannel,
+  getTerminalBufferReplayChannel
 } from '../../electron/ipc-channels'
 import {
   WorkspaceState,
   terminalToPersistedTerminal,
-  persistedTerminalToTerminal,
   WorkspaceStateValidator
 } from '@/types/workspace'
 import { ProjectSlice } from './projectSlice'
@@ -41,14 +41,16 @@ export interface TerminalSlice {
   subscribeToTerminalEvents: (terminalId: string) => void
   unsubscribeFromTerminalEvents: (terminalId: string) => void
 
+  // Clean buffer management
+  saveCleanBufferBeforeClose: (terminalId: string) => Promise<void>
+
   // Utility
   clearAll: () => void
   getTerminal: (id: string) => Terminal | undefined
 
   // Session persistence
   saveTerminalState: (projectPath: string) => Promise<void>
-  loadTerminalState: (projectPath: string) => Promise<void>
-  restoreTerminalSessions: () => Promise<void>
+  setWorkspaceState: (state: { terminals: any[]; activeTerminalId: string | null }) => void
 }
 
 export const createTerminalSlice: StateCreator<
@@ -139,6 +141,11 @@ export const createTerminalSlice: StateCreator<
 
     // With unified ID system, terminalId === backendSessionId
     const backendSessionId = id
+
+    // Extract and save clean buffer before closing
+    get().saveCleanBufferBeforeClose(id).catch((error) => {
+      storeLogger.error('[AppStore] Failed to save clean buffer before close', { terminalId: id, error })
+    })
 
     // Unsubscribe from events first
     get().unsubscribeFromTerminalEvents(id)
@@ -340,11 +347,13 @@ export const createTerminalSlice: StateCreator<
     // Create event channels
     const dataChannel = getTerminalDataChannel(terminalId)
     const exitChannel = getTerminalExitChannel(terminalId)
+    const bufferReplayChannel = getTerminalBufferReplayChannel(terminalId)
 
     storeLogger.verbose('[AppStore] Event channels configured', {
       terminalId,
       dataChannel,
-      exitChannel
+      exitChannel,
+      bufferReplayChannel
     })
 
     // Create event handlers with error handling
@@ -363,6 +372,26 @@ export const createTerminalSlice: StateCreator<
         }
       } catch (error) {
         storeLogger.error('[AppStore] Error handling terminal data', { terminalId, error })
+      }
+    }
+
+    const handleBufferReplay = (_event: any, data: string) => {
+      try {
+        storeLogger.info('[AppStore] Received buffer replay for terminal', {
+          terminalId,
+          dataLength: data.length
+        })
+
+        const instance = get().getTerminalInstance(terminalId)
+        if (instance?.xterm) {
+          // Write buffer replay data directly to XTerm (this is historical data)
+          instance.xterm.write(data)
+          storeLogger.debug('[AppStore] Buffer replay written to XTerm', { terminalId })
+        } else {
+          storeLogger.warn(`[AppStore] No XTerm instance found for buffer replay ${terminalId}`)
+        }
+      } catch (error) {
+        storeLogger.error('[AppStore] Error handling buffer replay', { terminalId, error })
       }
     }
 
@@ -392,11 +421,13 @@ export const createTerminalSlice: StateCreator<
       storeLogger.debug('[AppStore] Adding event listeners for terminal', {
         terminalId,
         dataChannel,
-        exitChannel
+        exitChannel,
+        bufferReplayChannel
       })
 
       window.electronAPI.on(dataChannel, handleData)
       window.electronAPI.on(exitChannel, handleExit)
+      window.electronAPI.on(bufferReplayChannel, handleBufferReplay)
 
       storeLogger.debug('[AppStore] Event listeners setup successfully', { terminalId })
 
@@ -407,6 +438,7 @@ export const createTerminalSlice: StateCreator<
           if (window.electronAPI.removeListener) {
             window.electronAPI.removeListener(dataChannel, handleData)
             window.electronAPI.removeListener(exitChannel, handleExit)
+            window.electronAPI.removeListener(bufferReplayChannel, handleBufferReplay)
           }
         }
       ]
@@ -484,6 +516,62 @@ export const createTerminalSlice: StateCreator<
     return get().terminals.find(t => t.id === id)
   },
 
+  // Clean buffer management
+  saveCleanBufferBeforeClose: async (terminalId) => {
+    storeLogger.info('[AppStore] Saving clean buffer before close', { terminalId })
+
+    try {
+      const instance = get().getTerminalInstance(terminalId)
+      if (!instance?.xterm) {
+        storeLogger.warn('[AppStore] No XTerm instance found for clean buffer extraction', { terminalId })
+        return
+      }
+
+      const xterm = instance.xterm
+      const buffer = xterm.buffer.active
+      const cleanLines: string[] = []
+
+      // Extract clean text from XTerm buffer
+      for (let i = 0; i < buffer.length; i++) {
+        try {
+          const line = buffer.getLine(i)
+          if (line) {
+            // Use translateToString(true) to get clean text without ANSI codes
+            const lineText = line.translateToString(true)
+            if (lineText.trim().length > 0 || cleanLines.length > 0) {
+              // Include non-empty lines or empty lines that are between content
+              cleanLines.push(lineText)
+            }
+          }
+        } catch (error) {
+          storeLogger.error('[AppStore] Error extracting line from XTerm buffer', { terminalId, lineIndex: i, error })
+        }
+      }
+
+      // Remove trailing empty lines
+      while (cleanLines.length > 0 && cleanLines[cleanLines.length - 1].trim() === '') {
+        cleanLines.pop()
+      }
+
+      if (cleanLines.length > 0) {
+        storeLogger.info('[AppStore] Extracted clean buffer', { terminalId, lineCount: cleanLines.length })
+
+        // Send clean buffer to backend
+        if (window.electronAPI?.terminal?.updateCleanBuffer) {
+          await window.electronAPI.terminal.updateCleanBuffer(terminalId, cleanLines)
+          storeLogger.info('[AppStore] ✅ Clean buffer saved to backend', { terminalId })
+        } else {
+          storeLogger.warn('[AppStore] updateCleanBuffer API not available', { terminalId })
+        }
+      } else {
+        storeLogger.info('[AppStore] No clean buffer content to save', { terminalId })
+      }
+    } catch (error) {
+      storeLogger.error('[AppStore] Failed to save clean buffer', { terminalId, error })
+      throw error
+    }
+  },
+
   // Session persistence
   saveTerminalState: async (projectPath) => {
     if (!projectPath || typeof projectPath !== 'string' || projectPath.trim() === '') {
@@ -498,6 +586,8 @@ export const createTerminalSlice: StateCreator<
         terminalCount: state.terminals.length 
       })
 
+      // Note: Buffer data is now handled automatically by the backend TerminalManagementService
+      // We only need to save basic terminal metadata here since buffers are managed by TerminalInstance
       const workspaceState: WorkspaceState = {
         terminals: state.terminals.map(terminal => terminalToPersistedTerminal(terminal)),
         activeTerminalId: state.activeTerminalId,
@@ -524,126 +614,54 @@ export const createTerminalSlice: StateCreator<
     }
   },
 
-  loadTerminalState: async (projectPath) => {
-    if (!projectPath || typeof projectPath !== 'string' || projectPath.trim() === '') {
-      storeLogger.error('[AppStore] Cannot load terminal state: invalid project path', { projectPath })
-      return
-    }
+  // Passive state setting - receives complete workspace state from backend
+  // Terminal restoration is handled by the project switching flow (setProject -> project:switch)
+  setWorkspaceState: (workspaceData) => {
+    const { terminals: serializedTerminals, activeTerminalId } = workspaceData
+    
+    storeLogger.info('[AppStore] Setting workspace state from backend', { 
+      terminalCount: serializedTerminals.length,
+      activeTerminalId 
+    })
 
-    try {
-      storeLogger.info('[AppStore] 📥 Loading terminal state via backend service', { projectPath })
+    // Convert serialized terminals to frontend Terminal objects
+    const terminals: Terminal[] = serializedTerminals.map(serialized => ({
+      id: serialized.id,
+      title: serialized.title || 'Terminal',
+      type: 'terminal',
+      cwd: serialized.cwd,
+      shell: serialized.shell,
+      isActive: false,
+      createdAt: serialized.createdAt || Date.now()
+    }))
 
-      const result = await window.electronAPI.workspaceState.load(projectPath)
+    // Note: Event subscriptions will be handled by individual Terminal components
+    // This prevents double subscription and ensures proper cleanup
+    storeLogger.debug('[AppStore] Terminal event subscriptions will be handled by Terminal components', { 
+      terminalCount: terminals.length 
+    })
 
-      if (!result.success) {
-        storeLogger.debug('[AppStore] No terminal state found to load', { projectPath })
-        return
-      }
-
-      const workspaceState = result.data
-
-      if (!workspaceState) {
-        storeLogger.debug('[AppStore] 🔍 No terminal state found to load', { projectPath })
-        return
-      }
-
-      if (!WorkspaceStateValidator.isValidWorkspaceState(workspaceState)) {
-        storeLogger.error('[AppStore] Invalid workspace state structure loaded from backend', { projectPath })
-        return
-      }
-
-      const terminals = workspaceState.terminals.map(persistedTerminal =>
-        persistedTerminalToTerminal(persistedTerminal)
-      )
-
-      set((state) => ({
-        ...state,
-        terminals: terminals.map(terminal => ({
-          ...terminal,
-          isActive: false
-        })),
-        activeTerminalId: workspaceState.activeTerminalId
-      }))
-
-      storeLogger.info('[AppStore] ✅ Terminal state loaded successfully', {
-        projectPath,
-        terminalCount: terminals.length,
-        activeTerminalId: workspaceState.activeTerminalId
-      })
-    } catch (error) {
-      storeLogger.debug('[AppStore] 🔍 No terminal state found to load', {
-        projectPath,
-        message: error instanceof Error ? error.message : String(error)
+    // Smart activeTerminalId setting - ensure we always have an active terminal if any exist
+    const finalActiveTerminalId = activeTerminalId || (terminals.length > 0 ? terminals[0].id : null)
+    
+    if (finalActiveTerminalId !== activeTerminalId) {
+      storeLogger.info('[AppStore] Auto-selecting first terminal as active', { 
+        originalActiveId: activeTerminalId,
+        newActiveId: finalActiveTerminalId,
+        terminalCount: terminals.length
       })
     }
-  },
 
-  restoreTerminalSessions: async () => {
-    try {
-      const state = get()
-      storeLogger.info('[AppStore] Restoring terminal sessions', { count: state.terminals.length })
+    // Apply the complete state atomically
+    set({
+      terminals,
+      activeTerminalId: finalActiveTerminalId,
+      terminalMode: terminals.length > 0 ? 'active' : 'welcome'
+    })
 
-      const terminalsToRestore = [...state.terminals]
-
-      set({
-        terminals: [],
-        activeTerminalId: null
-      })
-
-      for (const terminal of terminalsToRestore) {
-        try {
-          const result = await Promise.race([
-            window.electronAPI.terminal.create(terminal.cwd, terminal.shell || '', terminal.cwd),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('PTY creation timeout')), 5000)
-            )
-          ])
-
-          if (result.success && result.data?.terminalId) {
-            const backendTerminalId = result.data.terminalId
-
-            const restoredTerminal: Terminal = {
-              id: backendTerminalId,
-              title: terminal.title,
-              type: terminal.type,
-              cwd: terminal.cwd,
-              shell: terminal.shell,
-              isActive: false,
-              createdAt: terminal.createdAt
-            }
-
-            set((state) => ({
-              terminals: [...state.terminals, restoredTerminal],
-              activeTerminalId: state.activeTerminalId || backendTerminalId
-            }))
-
-            try {
-              get().subscribeToTerminalEvents(backendTerminalId)
-              storeLogger.debug('[AppStore] Event subscription setup automatically during restore', { terminalId: backendTerminalId })
-            } catch (error) {
-              storeLogger.error('[AppStore] Failed to setup event subscription during restore', {
-                terminalId: backendTerminalId,
-                error
-              })
-            }
-
-            storeLogger.info('[AppStore] Terminal restored with backend terminal', { terminalId: backendTerminalId })
-          } else {
-            storeLogger.error('[AppStore] Failed to restore terminal', { originalId: terminal.id, error: result.error })
-          }
-        } catch (error) {
-          storeLogger.error('[AppStore] Error restoring terminal', { originalId: terminal.id, error })
-        }
-      }
-
-      // Switch to active mode if we have terminals
-      if (get().terminals.length > 0) {
-        set({ terminalMode: 'active' })
-      }
-
-      storeLogger.info('[AppStore] Terminal restoration complete')
-    } catch (error) {
-      storeLogger.error('[AppStore] Failed to restore terminal sessions', { error })
-    }
+    storeLogger.info('[AppStore] ✅ Workspace state applied successfully', { 
+      terminalCount: terminals.length,
+      activeTerminalId 
+    })
   }
 })

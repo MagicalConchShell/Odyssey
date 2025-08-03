@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   // Backend -> Frontend (Events)
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
+  TERMINAL_BUFFER_REPLAY: 'terminal:buffer-replay',
 } as const
 
 // File System Channel Names for optimized file tree operations
@@ -23,11 +24,12 @@ export const FS_CHANNELS = {
   GET_DIRECTORY_CHILDREN: 'fs:get-directory-children',
 } as const
 
-// Workspace State Channel Names for terminal state persistence
+// Workspace State Channel Names for terminal state persistence (legacy)
 export const WORKSPACE_STATE_CHANNELS = {
   // Core state operations
   SAVE: 'workspace-state:save',
   LOAD: 'workspace-state:load',
+  RESTORE: 'workspace-state:restore',
   CLEAR: 'workspace-state:clear',
   HAS: 'workspace-state:has',
   
@@ -49,4 +51,9 @@ export function getTerminalDataChannel(terminalId: string): string {
 // Helper function to get channel name for terminal exit event
 export function getTerminalExitChannel(terminalId: string): string {
   return `${IPC_CHANNELS.TERMINAL_EXIT}:${terminalId}`
+}
+
+// Helper function to get channel name for terminal buffer replay event
+export function getTerminalBufferReplayChannel(terminalId: string): string {
+  return `${IPC_CHANNELS.TERMINAL_BUFFER_REPLAY}:${terminalId}`
 }

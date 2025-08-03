@@ -3,9 +3,11 @@ import {join} from 'path';
 import {dbManager} from './services/database-service.js';
 import {usageDataCache} from './services/usage-analytics-service.js';
 import {setupAllHandlers, cleanupHandlers} from './handlers/index.js';
-import {ptyService} from "./services/pty-service";
+import {TerminalManagementService} from "./services/terminal-management-service";
+import {WorkspaceStateService} from "./services/workspace-state-service";
 
 let mainWindow: BrowserWindow;
+let terminalManagementService: TerminalManagementService;
 
 /**
  * Create the main application window
@@ -66,8 +68,12 @@ const createWindow = async () => {
 async function initialize(): Promise<void> {
   console.log('🚀 Initializing application...');
 
-  // Setup all IPC handlers (now includes Claude Code session handlers)
-  setupAllHandlers(ipcMain);
+  // Create service instances
+  terminalManagementService = new TerminalManagementService();
+  const workspaceStateService = new WorkspaceStateService();
+
+  // Setup all IPC handlers with dependency injection
+  setupAllHandlers(ipcMain, { terminalManagementService, workspaceStateService });
 
   // Initialize database
   dbManager.initialize()
@@ -76,6 +82,9 @@ async function initialize(): Promise<void> {
   // Initialize usage data cache (placeholder)
   // TODO: Implement usageDataCache.init() method
   console.log('✅ Usage data cache initialization skipped (placeholder)');
+
+  // Terminal state restoration is now handled by frontend via IPC
+  console.log('📝 Terminal state restoration will be handled by frontend');
 
   console.log('✅ Application initialization complete');
 }
@@ -123,8 +132,26 @@ app.on('window-all-closed', () => {
 });
 
 // Handle app shutdown
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   console.log('🚪 Application is shutting down, cleaning up resources...');
+
+  // Save terminal state before shutdown
+  try {
+    const workspaceService = new WorkspaceStateService();
+    const currentProjectPath = process.cwd(); // Use current working directory as default
+    
+    // Only save if there are active terminals
+    if (terminalManagementService.getCount() > 0) {
+      console.log(`💾 Saving terminal state for ${terminalManagementService.getCount()} terminals...`);
+      await workspaceService.saveFromTerminalService(currentProjectPath, terminalManagementService);
+      console.log('✅ Terminal state saved successfully');
+    } else {
+      console.log('📭 No terminals to save');
+    }
+  } catch (error) {
+    console.error('❌ Failed to save terminal state during shutdown:', error);
+    // Don't prevent shutdown due to save failure
+  }
 
   // Clean up database connection
   dbManager.close();
@@ -135,8 +162,8 @@ app.on('before-quit', () => {
   // Clean up IPC handlers
   cleanupHandlers(ipcMain);
 
-  // Clean up pty process
-  ptyService.cleanup();
+  // Clean up terminal management service
+  terminalManagementService.cleanup();
 
   console.log('✅ Cleanup completed');
 });
