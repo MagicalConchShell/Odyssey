@@ -2,7 +2,8 @@ import {app, BrowserWindow, ipcMain, session} from 'electron';
 import {join} from 'path';
 import {dbManager} from './services/database-service.js';
 import {usageDataCache} from './services/usage-analytics-service.js';
-import {setupAllHandlers, cleanupHandlers} from './handlers/index.js';
+import {cleanupHandlers} from './handlers/index.js';
+import {bootstrapApi} from './api/index.js';
 import {TerminalManagementService} from "./services/terminal-management-service";
 import {WorkspaceStateService} from "./services/workspace-state-service";
 
@@ -72,19 +73,17 @@ async function initialize(): Promise<void> {
   terminalManagementService = new TerminalManagementService();
   const workspaceStateService = new WorkspaceStateService();
 
-  // Setup all IPC handlers with dependency injection
-  setupAllHandlers(ipcMain, { terminalManagementService, workspaceStateService });
+  // Bootstrap API system - unified handler registration and structure generation
+  const apiStructure = await bootstrapApi(ipcMain, { terminalManagementService, workspaceStateService });
+
+  // Register API structure handler for preload script
+  ipcMain.handle('get-api-structure', () => {
+    return apiStructure;
+  });
 
   // Initialize database
   dbManager.initialize()
   console.log('✅ Database initialized');
-
-  // Initialize usage data cache (placeholder)
-  // TODO: Implement usageDataCache.init() method
-  console.log('✅ Usage data cache initialization skipped (placeholder)');
-
-  // Terminal state restoration is now handled by frontend via IPC
-  console.log('📝 Terminal state restoration will be handled by frontend');
 
   console.log('✅ Application initialization complete');
 }
@@ -150,7 +149,6 @@ app.on('before-quit', async () => {
     }
   } catch (error) {
     console.error('❌ Failed to save terminal state during shutdown:', error);
-    // Don't prevent shutdown due to save failure
   }
 
   // Clean up database connection
@@ -167,5 +165,3 @@ app.on('before-quit', async () => {
 
   console.log('✅ Cleanup completed');
 });
-
-// All exports are now handled by the handlers module

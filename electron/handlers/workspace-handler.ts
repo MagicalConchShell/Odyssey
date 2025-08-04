@@ -152,14 +152,11 @@ export async function cleanupOrphanedStates(
 }
 
 /**
- * Service initialization function for dependency injection
+ * Initialize workspace handlers with service dependencies
  */
-export function injectServices(services: HandlerServices): void {
-  console.log('🔧 Injecting workspace handler dependencies...');
-  
+export function initializeWorkspaceHandlers(services: HandlerServices): void {
   // Inject service dependencies
   workspaceStateService = services.workspaceStateService;
   terminalManagementService = services.terminalManagementService;
-
-  console.log('✅ Workspace handler dependencies injected successfully');
+  console.log('✅ Workspace handlers initialized with services')
 }

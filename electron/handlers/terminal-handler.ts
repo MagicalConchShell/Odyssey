@@ -7,12 +7,11 @@
 
 import { WebContents, IpcMainInvokeEvent } from 'electron'
 import type { TerminalManagementService } from '../services/terminal-management-service'
-import type { HandlerServices } from './index.js'
 import { 
   getTerminalDataChannel,
   getTerminalExitChannel,
   getTerminalBufferReplayChannel
-} from '../ipc-channels'
+} from '../ipc-event-channels'
 
 // Service dependencies - injected during setup
 let terminalManagementService: TerminalManagementService;
@@ -181,46 +180,6 @@ export async function registerWebContents(event: IpcMainInvokeEvent, terminalId:
 }
 
 /**
- * Get terminal information
- */
-export async function getTerminalInfo(_event: IpcMainInvokeEvent, terminalId: string): Promise<{ isActive: boolean; workingDirectory: string; shell: string }> {
-  const terminal = terminalManagementService.getTerminal(terminalId)
-  if (!terminal) {
-    throw new Error(`Terminal ${terminalId} not found`)
-  }
-  
-  return {
-    isActive: true, // Simplified - assume active if exists
-    workingDirectory: terminal.getCurrentCwd() || '/tmp',
-    shell: 'bash' // Simplified default
-  }
-}
-
-/**
- * List all terminal IDs
- */
-export async function listTerminals(_event: IpcMainInvokeEvent): Promise<string[]> {
-  // Simplified implementation - return empty array for now
-  return []
-}
-
-/**
- * Pause a terminal session
- */
-export async function pauseTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
-  // Simplified implementation - no-op for now
-  console.log(`[TerminalHandler] Pause requested for terminal ${terminalId}`)
-}
-
-/**
- * Resume a terminal session
- */
-export async function resumeTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
-  // Simplified implementation - no-op for now
-  console.log(`[TerminalHandler] Resume requested for terminal ${terminalId}`)
-}
-
-/**
  * Get terminal state
  */
 export async function getTerminalState(_event: IpcMainInvokeEvent, terminalId: string): Promise<any> {
@@ -241,26 +200,14 @@ export async function getTerminalState(_event: IpcMainInvokeEvent, terminalId: s
 /**
  * Initialize terminal handlers with service dependencies
  */
-export function initializeTerminalHandlers(services: HandlerServices): void {
+export function initializeTerminalHandlers(service: TerminalManagementService): void {
   // Inject service dependencies
-  terminalManagementService = services.terminalManagementService;
+  terminalManagementService = service;
   
   // Set up TerminalManagementService event forwarding
   setupTerminalServiceEvents()
   
   console.log('✅ Terminal handlers initialized with services')
-}
-
-/**
- * Register WebContents for a terminal (used during restoration)
- */
-export function registerTerminalWebContents(terminalId: string, webContents: WebContents): void {
-  console.log(`[TerminalHandler] 🔗 Registering WebContents for restored terminal ${terminalId}`)
-  
-  // Store WebContents for this terminal
-  terminalWebContentsMap.set(terminalId, webContents)
-  
-  console.log(`[TerminalHandler] ✅ WebContents registered for terminal ${terminalId}`)
 }
 
 /**
