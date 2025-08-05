@@ -17,7 +17,7 @@ import {
   ChartContainer,
   ChartTooltip,
 } from "@/components/ui/chart"
-import { UsageStats } from '@/types/electron'
+import { UsageStats, ModelUsageStats, ProjectUsageStats, DateUsageStats } from '@/types/electron'
 
 interface UsageDashboardProps {
   onBack: () => void
@@ -395,7 +395,7 @@ export const UsageDashboard = React.memo<UsageDashboardProps>(({ onBack }) => {
                       <div className="bg-secondary rounded-lg p-4">
                         <h3 className="text-sm font-semibold mb-4 text-foreground">Most Used Models</h3>
                         <div className="space-y-3">
-                          {stats.by_model.slice(0, 3).map((model) => (
+                          {stats.by_model.slice(0, 3).map((model: ModelUsageStats) => (
                             <div key={model.model} className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
                                 <span className={`px-2 py-1 text-xs rounded-md border border-border ${getModelColor(model.model)} bg-background`}>
@@ -416,7 +416,7 @@ export const UsageDashboard = React.memo<UsageDashboardProps>(({ onBack }) => {
                       <div className="bg-secondary rounded-lg p-4">
                         <h3 className="text-sm font-semibold mb-4 text-foreground">Top Projects</h3>
                         <div className="space-y-3">
-                          {stats.by_project.slice(0, 3).map((project) => (
+                          {stats.by_project.slice(0, 3).map((project: ProjectUsageStats) => (
                             <div key={project.project_path} className="flex items-center justify-between">
                               <div className="flex flex-col">
                                 <span className="text-sm font-medium truncate max-w-[200px] text-foreground" title={project.project_path}>
@@ -441,7 +441,7 @@ export const UsageDashboard = React.memo<UsageDashboardProps>(({ onBack }) => {
                 {activeTab === 'models' && (
                   <div className="space-y-4">
                     <h3 className="text-sm font-semibold mb-4 text-foreground">Usage by Model</h3>
-                    {stats.by_model.map((model) => (
+                    {stats.by_model.map((model: ModelUsageStats) => (
                       <div key={model.model} className="space-y-2 p-4 bg-secondary rounded-lg">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-3">
@@ -483,7 +483,7 @@ export const UsageDashboard = React.memo<UsageDashboardProps>(({ onBack }) => {
                 {activeTab === 'projects' && (
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold mb-4 text-foreground">Usage by Project</h3>
-                    {stats.by_project.map((project) => (
+                    {stats.by_project.map((project: ProjectUsageStats) => (
                       <div key={project.project_path} className="flex items-center justify-between py-3 border-b border-border last:border-0">
                         <div className="flex flex-col truncate">
                           <span className="text-sm font-medium truncate text-foreground" title={project.project_path}>
@@ -518,7 +518,7 @@ export const UsageDashboard = React.memo<UsageDashboardProps>(({ onBack }) => {
                     </h3>
                     {stats.by_date.length > 0 ? (() => {
                       // Transform data for Recharts
-                      const chartData = stats.by_date.map(day => {
+                      const chartData = stats.by_date.map((day: DateUsageStats) => {
                         const date = new Date(day.date.replace(/-/g, '/'))
                         return {
                           date: day.date,

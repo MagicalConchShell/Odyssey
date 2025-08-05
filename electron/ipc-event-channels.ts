@@ -10,7 +10,7 @@ export const TERMINAL_EVENT_CHANNELS = {
   // Backend -> Frontend (Events)
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
-  TERMINAL_BUFFER_REPLAY: 'terminal:buffer-replay',
+  TERMINAL_HISTORY_REPLAY: 'terminal:history-replay', // New structured history replay
 } as const
 
 // Helper function to get channel name for terminal data event
@@ -23,7 +23,7 @@ export function getTerminalExitChannel(terminalId: string): string {
   return `${TERMINAL_EVENT_CHANNELS.TERMINAL_EXIT}:${terminalId}`
 }
 
-// Helper function to get channel name for terminal buffer replay event
-export function getTerminalBufferReplayChannel(terminalId: string): string {
-  return `${TERMINAL_EVENT_CHANNELS.TERMINAL_BUFFER_REPLAY}:${terminalId}`
+// Helper function to get channel name for terminal history replay event
+export function getTerminalHistoryReplayChannel(terminalId: string): string {
+  return `${TERMINAL_EVENT_CHANNELS.TERMINAL_HISTORY_REPLAY}:${terminalId}`
 }

@@ -7,17 +7,16 @@
  */
 
 import { EventEmitter } from 'events'
-import { CircularBuffer } from '../utils/circular-buffer'
 import { ptyService } from './pty-service'
 
-// ANSI escape sequences for clear screen detection
-const CLEAR_SCREEN_SEQUENCES = [
-  '\x1b[H\x1b[2J',  // Clear screen and move cursor to top-left (most common)
-  '\x1b[2J\x1b[H',  // Alternative order
-  '\x1b[2J',        // Clear screen only
-  '\x1bc',          // Full reset
-  '\x1b[3J'         // Clear scrollback buffer
-]
+// Command history entry for structured terminal history
+export interface CommandHistoryEntry {
+  command: string
+  output: string
+  exitCode: number
+  timestamp: number
+  cwd: string
+}
 
 export interface TerminalInstanceOptions {
   id: string
@@ -26,7 +25,6 @@ export interface TerminalInstanceOptions {
   cols?: number
   rows?: number
   title?: string
-  bufferSize?: number
 }
 
 export interface SerializedTerminalInstance {
@@ -37,7 +35,7 @@ export interface SerializedTerminalInstance {
   cols: number
   rows: number
   isAlive: boolean
-  buffer: string[]
+  commandHistory: CommandHistoryEntry[] // Replace buffer with structured history
   createdAt: number
   currentCwd?: string // Dynamic CWD that may differ from initial cwd
   runningProcess?: string // Currently running process name
@@ -53,12 +51,15 @@ export class TerminalInstance extends EventEmitter {
   public readonly shell: string
   public readonly createdAt: number
 
-  private buffer: CircularBuffer<string>
+  private commandHistory: CommandHistoryEntry[] = []
+  private currentCommandOutput: string = ''
+  private isCapturingCommand: boolean = false
+  private tempCommand: Partial<CommandHistoryEntry> | null = null
   private cols: number
   private rows: number
   private isAlive: boolean = true
   
-  // Dynamic state tracking (now updated via OSC sequences)
+  // Dynamic state tracking (updated via OSC sequences)
   private currentCwd: string
   private runningProcess: string | null = null
 
@@ -72,10 +73,6 @@ export class TerminalInstance extends EventEmitter {
     this.cols = options.cols || 80
     this.rows = options.rows || 30
     this.createdAt = Date.now()
-    
-    // Initialize circular buffer (default 5000 lines as per plan)
-    const bufferSize = options.bufferSize || 5000
-    this.buffer = new CircularBuffer<string>(bufferSize)
 
     // Determine shell
     const defaultShell = process.platform === 'win32' ? 'powershell.exe' : 
@@ -121,62 +118,141 @@ export class TerminalInstance extends EventEmitter {
   }
 
   /**
-   * Core data handling logic - processes PTY output and manages buffer
-   * This is where ANSI clear sequence detection happens
+   * Core data handling logic - processes PTY output and manages command history
+   * This is where OSC sequence parsing for command tracking happens
    */
   private onData(data: string): void {
-    // Check for clear screen sequences BEFORE adding to buffer
-    const containsClearSequence = CLEAR_SCREEN_SEQUENCES.some(seq => 
-      data.includes(seq)
-    )
-
-    if (containsClearSequence) {
-      console.log(`[TerminalInstance] Clear screen sequence detected in ${this.id}`)
-      this.clearBuffer()
-      
-      // Filter out the clear sequence from the data to avoid adding it to buffer
-      let cleanedData = data
-      CLEAR_SCREEN_SEQUENCES.forEach(seq => {
-        cleanedData = cleanedData.replace(seq, '')
-      })
-      
-      // Only add to buffer if there's remaining data after filtering
-      if (cleanedData.trim().length > 0) {
-        this.addToBuffer(cleanedData)
-      }
-    } else {
-      // Normal data - add to buffer
-      this.addToBuffer(data)
-    }
-
-    // Always forward data to renderer (including clear sequences for proper terminal rendering)
+    // Always forward all raw data to the frontend for rendering
     this.emit('data', { id: this.id, data })
+
+    // Process data internally for command history tracking
+    this.processOscSequences(data)
   }
 
   /**
-   * Add data to the circular buffer
-   * Splits data by lines to store line-by-line history
+   * Process OSC sequences for command tracking and CWD updates
    */
-  private addToBuffer(data: string): void {
-    // Split data by newlines and add each line to buffer
-    const lines = data.split('\n')
+  private processOscSequences(data: string): void {
+    // Check if data contains any OSC 633 sequences
+    if (data.includes('\x1b]633;')) {
+      console.log(`[TerminalInstance] 📡 OSC 633 sequence detected in terminal ${this.id}`)
+    }
     
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
+    // OSC 633;A -> Command Start
+    // OSC 633;B -> Command End  
+    // OSC 633;P -> CWD/Process info
+    // Pattern matches: \x1b]633;A;....\x07 or \x1b]633;B;....\x07 or \x1b]633;P;....\x07
+    const oscRegex = /\x1b]633;([ABP]);([^]*?)\x07/g
+    let match
+    let lastIndex = 0
+
+    while ((match = oscRegex.exec(data)) !== null) {
+      // Append text between OSC sequences to the current command's output
+      const textBeforeMatch = data.substring(lastIndex, match.index)
+      if (this.isCapturingCommand) {
+        this.currentCommandOutput += textBeforeMatch
+      }
+      lastIndex = oscRegex.lastIndex
+
+      const type = match[1]
+      const payload = match[2]
       
-      // For the first line, it might be a continuation of the previous line
-      // For now, we'll treat each chunk as a separate entry
-      // In a more sophisticated implementation, we might want to handle line continuations
+      console.log(`[TerminalInstance] 🔍 Processing OSC 633;${type} sequence:`, payload.substring(0, 100) + (payload.length > 100 ? '...' : ''))
       
-      if (i === lines.length - 1 && !data.endsWith('\n')) {
-        // Last line without newline - might be partial, but add it anyway
-        this.buffer.push(line)
-      } else {
-        // Complete line or line with newline
-        this.buffer.push(line)
+      if (type === 'A' || type === 'B') {
+        this.handleCommandOsc(type, payload)
+      } else if (type === 'P') {
+        this.handleInfoOsc(payload)
       }
     }
+
+    // Append any remaining text after the last OSC sequence
+    const remainingText = data.substring(lastIndex)
+    if (this.isCapturingCommand) {
+      this.currentCommandOutput += remainingText
+    }
   }
+
+  /**
+   * Handle info OSC sequences (OSC 633;P) for CWD and process updates
+   */
+  private handleInfoOsc(payload: string): void {
+    try {
+      // Parse parameters from payload (format: ;Cwd=file://hostname/path)
+      const params = new URLSearchParams(payload.replace(/;/g, '&'))
+      
+      const cwdUrl = params.get('Cwd')
+      if (cwdUrl) {
+        // Parse the file:// URL to extract the path
+        const url = new URL(cwdUrl)
+        let newCwd = decodeURIComponent(url.pathname)
+        
+        // Handle Windows paths: remove leading slash from /C:/path
+        if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(newCwd)) {
+          newCwd = newCwd.substring(1)
+        }
+        
+        // Update current CWD using existing method
+        this.updateCurrentCwd(newCwd)
+      }
+    } catch (error) {
+      console.error(`[TerminalInstance] Error parsing info OSC sequence:`, error)
+    }
+  }
+
+  /**
+   * Handle command-related OSC sequences
+   */
+  private handleCommandOsc(type: string, payload: string): void {
+    try {
+      // Parse URL-encoded parameters (C=command&T=timestamp&Cwd=cwd)
+      const params = new URLSearchParams(payload.replace(/;/g, '&'))
+      
+      if (type === 'A') { // Command Start
+        this.isCapturingCommand = true
+        this.currentCommandOutput = '' // Reset output capture
+        
+        this.tempCommand = {
+          command: decodeURIComponent(params.get('C') || ''),
+          timestamp: parseInt(params.get('T') || '0', 10) * 1000, // Convert to ms
+          cwd: decodeURIComponent(params.get('Cwd') || this.currentCwd),
+        }
+        
+        console.log(`[TerminalInstance] Command started: ${this.tempCommand.command}`)
+        
+      } else if (type === 'B') { // Command End
+        if (this.tempCommand) {
+          const exitCode = parseInt(params.get('E') || '0', 10)
+          
+          const historyEntry: CommandHistoryEntry = {
+            command: this.tempCommand.command || '',
+            output: this.currentCommandOutput,
+            exitCode,
+            timestamp: this.tempCommand.timestamp || Date.now(),
+            cwd: this.tempCommand.cwd || this.currentCwd,
+          }
+          
+          this.commandHistory.push(historyEntry)
+          
+          // Limit history size (configurable, default 500)
+          const maxHistorySize = 500
+          if (this.commandHistory.length > maxHistorySize) {
+            this.commandHistory.shift()
+          }
+          
+          console.log(`[TerminalInstance] ✅ Command completed: ${historyEntry.command} (exit: ${exitCode})`)
+          console.log(`[TerminalInstance] 📊 Total command history entries: ${this.commandHistory.length}`)
+        }
+        
+        this.isCapturingCommand = false
+        this.tempCommand = null
+        this.currentCommandOutput = ''
+      }
+    } catch (error) {
+      console.error(`[TerminalInstance] Error parsing OSC sequence:`, error)
+    }
+  }
+
 
   /**
    * Write data to the PTY process via PtyService
@@ -247,65 +323,9 @@ export class TerminalInstance extends EventEmitter {
   }
 
 
-  /**
-   * Replay buffer contents to frontend XTerm instance (for restoration)
-   * This method emits buffer replay events on a dedicated channel to avoid mixing with live data
-   */
-  replayBuffer(): void {
-    if (!this.isAlive) {
-      console.warn(`[TerminalInstance] Cannot replay buffer to dead terminal ${this.id}`)
-      return
-    }
 
-    const bufferContents = this.buffer.toArray()
-    if (bufferContents.length === 0) {
-      console.log(`[TerminalInstance] No buffer contents to replay for ${this.id}`)
-      return
-    }
 
-    console.log(`[TerminalInstance] Replaying ${bufferContents.length} lines to frontend for terminal ${this.id}`)
-    
-    // Send buffer contents via dedicated buffer-replay event (not data event)
-    // This separates historical data from live PTY output
-    const combinedData = bufferContents.join('\r\n')
-    if (combinedData.length > 0) {
-      // Emit buffer-replay event with special flag
-      this.emit('buffer-replay', { id: this.id, data: combinedData + '\r\n' })
-      console.log(`[TerminalInstance] ✅ Buffer replay completed for terminal ${this.id}`)
-    }
-  }
 
-  /**
-   * Clear the internal buffer (called when clear screen sequence is detected)
-   */
-  clearBuffer(): void {
-    this.buffer.clear()
-    console.log(`[TerminalInstance] Buffer cleared for ${this.id}`)
-  }
-
-  /**
-   * Update buffer with clean text from frontend XTerm (replaces ANSI-polluted data)
-   */
-  updateCleanBuffer(cleanLines: string[]): void {
-    console.log(`[TerminalInstance] Updating buffer with ${cleanLines.length} clean lines for ${this.id}`)
-    
-    // Clear existing buffer and replace with clean text
-    this.buffer.clear()
-    
-    // Add each clean line to the buffer
-    for (const line of cleanLines) {
-      this.buffer.push(line)
-    }
-    
-    console.log(`[TerminalInstance] ✅ Buffer updated with clean text for ${this.id}`)
-  }
-
-  /**
-   * Get current buffer contents as array
-   */
-  getBuffer(): string[] {
-    return this.buffer.toArray()
-  }
 
   /**
    * Check if PTY process is still alive
@@ -340,6 +360,8 @@ export class TerminalInstance extends EventEmitter {
    * Excludes the ptyProcess as it cannot be serialized
    */
   toJSON(): SerializedTerminalInstance {
+    console.log(`[TerminalInstance] 📋 Serializing terminal ${this.id} with ${this.commandHistory.length} command history entries`)
+    
     return {
       id: this.id,
       title: this.title,
@@ -348,7 +370,7 @@ export class TerminalInstance extends EventEmitter {
       cols: this.cols,
       rows: this.rows,
       isAlive: this.isAlive,
-      buffer: this.buffer.toArray(),
+      commandHistory: this.commandHistory,
       createdAt: this.createdAt,
       currentCwd: this.currentCwd,
       runningProcess: this.runningProcess || undefined
@@ -359,7 +381,7 @@ export class TerminalInstance extends EventEmitter {
    * Create a TerminalInstance from serialized data
    * This creates a new PTY process but restores the historical state
    */
-  static fromSerialized(data: SerializedTerminalInstance, options: { restoreBuffer?: boolean } = {}): TerminalInstance {
+  static fromSerialized(data: SerializedTerminalInstance): TerminalInstance {
     // Use currentCwd if available, fallback to original cwd
     const cwdToUse = data.currentCwd || data.cwd
     
@@ -380,14 +402,29 @@ export class TerminalInstance extends EventEmitter {
       instance.runningProcess = data.runningProcess
     }
 
-    // Restore buffer if requested
-    if (options.restoreBuffer && data.buffer && data.buffer.length > 0) {
-      instance.buffer = CircularBuffer.fromArray(data.buffer, instance.buffer.getCapacity())
-      console.log(`[TerminalInstance] Restored buffer with ${data.buffer.length} lines for ${instance.id}`)
+    // Restore command history
+    if (data.commandHistory && data.commandHistory.length > 0) {
+      instance.commandHistory = [...data.commandHistory]
+      console.log(`[TerminalInstance] Restored command history with ${data.commandHistory.length} entries for ${instance.id}`)
     }
 
     console.log(`[TerminalInstance] Restored terminal ${instance.id} with CWD: ${cwdToUse}${data.runningProcess ? `, process: ${data.runningProcess}` : ''}`)
 
     return instance
+  }
+
+  /**
+   * Get command history for frontend restoration
+   */
+  getCommandHistory(): CommandHistoryEntry[] {
+    return [...this.commandHistory]
+  }
+
+  /**
+   * Clear command history (called after successful restoration)
+   */
+  clearCommandHistory(): void {
+    this.commandHistory = []
+    console.log(`[TerminalInstance] Command history cleared for ${this.id}`)
   }
 }

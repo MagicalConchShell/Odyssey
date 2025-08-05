@@ -10,7 +10,6 @@ import { Terminal } from './Terminal'
 // Import unified state management
 import { 
   useAppStore,
-  useActiveTerminal, 
   type Project 
 } from '@/store'
 
@@ -29,10 +28,6 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
   const terminals = useAppStore((state) => state.terminals)
   const activeTerminalId = useAppStore((state) => state.activeTerminalId)
   const createTerminal = useAppStore((state) => state.createTerminal)
-  const activeTerminal = useActiveTerminal()
-  
-  // Terminal mode from unified store
-  const terminalMode = useAppStore((state) => state.terminalMode)
   
   // Terminal restoration is handled by the project switching flow (setProject -> project:switch)
   // No need for manual restoration here as it's managed by the unified AppStore
@@ -100,7 +95,7 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
       {/* Terminal restoration is handled seamlessly in the unified store */}
       
       <AnimatePresence mode="wait">
-        {terminalMode === 'welcome' ? (
+        {terminals.length === 0 ? (
           <motion.div
             key="welcome"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -145,16 +140,6 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
                   />
                 )
               })}
-              {!activeTerminal && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center space-y-2">
-                    <div className="text-muted-foreground">No active terminal</div>
-                    <div className="text-sm text-muted-foreground">
-                      Create a new terminal to get started
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </motion.div>
         )}

@@ -52,8 +52,7 @@ export async function load(
   // Load and restore terminals to backend service
   const result = await service.loadToTerminalService(
     project.path, 
-    terminalManagementService, 
-    { restoreBuffer: true }
+    terminalManagementService
   );
 
   // Update project's last_opened timestamp

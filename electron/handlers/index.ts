@@ -18,7 +18,7 @@ export function cleanupHandlers(ipcMain: IpcMain): void {
   ipcMain.removeAllListeners();
 }
 
-// Export utility functions from individual modules
+// // Export utility functions from individual modules
 export { getProjectPathFromSessions } from './project-management-handler.js';
 export { validateSettings, getDefaultSettings, mergeWithDefaults } from './settings-handler.js';
 export { executeCommand, commandExists, getSystemInfo } from './system-handler.js';

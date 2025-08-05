@@ -41,7 +41,6 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'terminal', method: 'getState', handler: terminalHandlers.getTerminalState },
   { channel: 'terminal', method: 'cwdChanged', handler: terminalHandlers.handleCwdChanged },
   { channel: 'terminal', method: 'registerWebContents', handler: terminalHandlers.registerWebContents },
-  { channel: 'terminal', method: 'updateCleanBuffer', handler: terminalHandlers.updateCleanBuffer },
 
   // Claude CLI handlers
   { channel: 'claudeCli', method: 'getBinaryPath', handler: claudeCliHandlers.getBinaryPath },

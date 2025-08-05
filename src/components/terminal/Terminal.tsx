@@ -19,6 +19,7 @@ import {useTerminalResize} from './hooks/useTerminalResize'
 import {useTerminalShortcuts} from './hooks/useTerminalShortcuts'
 import {TerminalSearch} from './TerminalSearch'
 import {terminalLogger} from '@/utils/logger'
+import type {CommandHistoryEntry} from '@/types/terminal'
 
 interface TerminalProps {
   terminalId: string
@@ -32,6 +33,8 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
   const resizeTerminal = useAppStore((state) => state.resizeTerminal)
   const getTerminalInstance = useAppStore((state) => state.getTerminalInstance)
   const setTerminalInstance = useAppStore((state) => state.setTerminalInstance)
+  const getTerminal = useAppStore((state) => state.getTerminal)
+  const clearCommandHistory = useAppStore((state) => state.clearCommandHistory)
 
   // Use specialized hooks
   const search = useTerminalSearch(terminalId)
@@ -160,7 +163,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
 
     // Only create event handlers if needed (to prevent duplicates)
-    let inputDisposable, resizeDisposable, oscDisposable
+    let inputDisposable, resizeDisposable
 
     if (needsEventHandlers) {
       // Handle user input - write to backend
@@ -172,42 +175,12 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       resizeDisposable = terminal.onResize(({cols, rows}) => {
         resizeTerminal(terminalId, cols, rows)
       })
-
-      // Handle OSC sequences for shell integration (CWD tracking)
-      oscDisposable = terminal.parser.registerOscHandler(633, (data: string) => {
-        try {
-          // Parse our custom OSC 633 sequence for CWD updates
-          // Format: P;Cwd=file://hostname/path
-          if (data.startsWith('P;Cwd=file://')) {
-            const cwdMatch = data.match(/P;Cwd=file:\/\/[^\/]*(.+)/)
-            if (cwdMatch && cwdMatch[1]) {
-              const newCwd = cwdMatch[1]
-              
-              // Send CWD update to backend via IPC
-              if (window.electronAPI && window.electronAPI.terminal.cwdChanged) {
-                window.electronAPI.terminal.cwdChanged(terminalId, newCwd)
-                  .catch((error: any) => {
-                    console.error('Failed to send CWD update:', error)
-                  })
-              }
-              
-              terminalLogger.debug('CWD updated via OSC sequence', { terminalId, newCwd })
-            }
-          }
-          
-          // Return true to prevent the sequence from being displayed
-          return true
-        } catch (error) {
-          console.error('Error parsing OSC sequence:', error)
-          return false
-        }
-      })
     }
 
     // Create or update instance object
     if (instance) {
       // Update existing instance with new event handlers
-      instance.disposables = [inputDisposable, resizeDisposable, oscDisposable].filter(Boolean)
+      instance.disposables = [inputDisposable, resizeDisposable].filter(Boolean)
     } else {
       // Create new instance object
       instance = {
@@ -215,7 +188,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
         fitAddon,
         searchAddon,
         webglAddon,
-        disposables: [inputDisposable, resizeDisposable, oscDisposable],
+        disposables: [inputDisposable, resizeDisposable],
         isAttached: false
       }
     }
@@ -265,7 +238,6 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
 
     // ESLint disable: getOrCreateXTermInstance and resizeTerminal are stable from memoized hooks
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
 
   // Handle theme changes
@@ -281,7 +253,6 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       }, 10)
     }
     // ESLint disable: getTerminalInstance is stable from memoized hook
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, terminalId])
 
   // Cleanup on unmount - only dispose if terminal is being removed
@@ -293,6 +264,65 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       terminalLogger.debug(`Component unmounting`, {terminalId})
     }
   }, [terminalId])
+
+  // Handle command history restoration
+  useEffect(() => {
+    const terminal = getTerminal(terminalId)
+    const instance = getTerminalInstance(terminalId)
+    
+    if (terminal?.commandHistory && instance?.xterm && terminal.commandHistory.length > 0) {
+      const xterm = instance.xterm
+      const commandHistory = terminal.commandHistory
+      
+      terminalLogger.info(`Rendering command history for terminal ${terminalId}`, { 
+        commandCount: commandHistory.length 
+      })
+      
+      // Render clear separator
+      xterm.writeln('')
+      xterm.writeln('\x1b[1m\x1b[34m--- 会话已恢复 (Session Restored) ---\x1b[0m')
+      xterm.writeln('')
+      
+      // Render structured history
+      commandHistory.forEach((entry: CommandHistoryEntry) => {
+        // Format the prompt with exit code color
+        const promptColor = entry.exitCode === 0 ? '\x1b[32m' : '\x1b[31m'
+        const timestamp = new Date(entry.timestamp).toLocaleTimeString()
+        const cwdShort = entry.cwd.split('/').pop() || '/'
+        
+        // Write prompt line
+        xterm.writeln(`${promptColor}➜\x1b[0m \x1b[36m${cwdShort}\x1b[0m \x1b[90m[${timestamp}]\x1b[0m`)
+        
+        // Write command
+        xterm.writeln(`  \x1b[1m${entry.command}\x1b[0m`)
+        
+        // Write output if present
+        if (entry.output && entry.output.trim()) {
+          const outputLines = entry.output.split('\n')
+          outputLines.forEach(line => {
+            if (line.trim()) {
+              xterm.writeln(`  ${line}`)
+            }
+          })
+        }
+        
+        // Show exit code if non-zero
+        if (entry.exitCode !== 0) {
+          xterm.writeln(`  \x1b[31m(退出码: ${entry.exitCode})\x1b[0m`)
+        }
+        
+        xterm.writeln('') // Empty line between commands
+      })
+      
+      xterm.writeln('\x1b[1m\x1b[34m--- 历史会话结束 (End of Restored Session) ---\x1b[0m')
+      xterm.writeln('')
+      
+      // Clear history from store to prevent re-rendering on tab switch
+      clearCommandHistory(terminalId)
+      
+      terminalLogger.debug(`Command history rendered and cleared for terminal ${terminalId}`)
+    }
+  }, [terminalId, getTerminal(terminalId)?.commandHistory, getTerminalInstance, clearCommandHistory])
 
   return (
     <div className={`terminal-container relative ${className}`}>

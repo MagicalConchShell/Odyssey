@@ -4,8 +4,8 @@ import { storeLogger } from '@/utils/logger'
 import {
   getTerminalDataChannel,
   getTerminalExitChannel,
-  getTerminalBufferReplayChannel
-} from '../../electron/ipc-channels'
+  getTerminalHistoryReplayChannel
+} from '../../electron/ipc-event-channels'
 import { ProjectSlice } from './projectSlice'
 import { UISlice } from './uiSlice'
 
@@ -36,12 +36,13 @@ export interface TerminalSlice {
   subscribeToTerminalEvents: (terminalId: string) => void
   unsubscribeFromTerminalEvents: (terminalId: string) => void
 
-  // Clean buffer management
-  saveCleanBufferBeforeClose: (terminalId: string) => Promise<void>
 
   // Utility
   clearAll: () => void
   getTerminal: (id: string) => Terminal | undefined
+  
+  // Command history management
+  clearCommandHistory: (terminalId: string) => void
 
   // Session persistence
   saveTerminalState: (projectId: string) => Promise<void>
@@ -137,10 +138,6 @@ export const createTerminalSlice: StateCreator<
     // With unified ID system, terminalId === backendSessionId
     const backendSessionId = id
 
-    // Extract and save clean buffer before closing
-    get().saveCleanBufferBeforeClose(id).catch((error) => {
-      storeLogger.error('[AppStore] Failed to save clean buffer before close', { terminalId: id, error })
-    })
 
     // Unsubscribe from events first
     get().unsubscribeFromTerminalEvents(id)
@@ -342,13 +339,13 @@ export const createTerminalSlice: StateCreator<
     // Create event channels
     const dataChannel = getTerminalDataChannel(terminalId)
     const exitChannel = getTerminalExitChannel(terminalId)
-    const bufferReplayChannel = getTerminalBufferReplayChannel(terminalId)
+    const historyReplayChannel = getTerminalHistoryReplayChannel(terminalId)
 
     storeLogger.verbose('[AppStore] Event channels configured', {
       terminalId,
       dataChannel,
       exitChannel,
-      bufferReplayChannel
+      historyReplayChannel
     })
 
     // Create event handlers with error handling
@@ -370,23 +367,23 @@ export const createTerminalSlice: StateCreator<
       }
     }
 
-    const handleBufferReplay = (_event: any, data: string) => {
+    const handleHistoryReplay = (_event: any, commandHistory: any[]) => {
       try {
-        storeLogger.info('[AppStore] Received buffer replay for terminal', {
+        storeLogger.info('[AppStore] Received command history for terminal', {
           terminalId,
-          dataLength: data.length
+          commandCount: commandHistory.length
         })
 
-        const instance = get().getTerminalInstance(terminalId)
-        if (instance?.xterm) {
-          // Write buffer replay data directly to XTerm (this is historical data)
-          instance.xterm.write(data)
-          storeLogger.debug('[AppStore] Buffer replay written to XTerm', { terminalId })
-        } else {
-          storeLogger.warn(`[AppStore] No XTerm instance found for buffer replay ${terminalId}`)
-        }
+        // Store command history in the terminal state for rendering
+        set((state) => ({
+          terminals: state.terminals.map(t =>
+            t.id === terminalId ? { ...t, commandHistory } : t
+          )
+        }))
+
+        storeLogger.debug('[AppStore] Command history stored in state', { terminalId })
       } catch (error) {
-        storeLogger.error('[AppStore] Error handling buffer replay', { terminalId, error })
+        storeLogger.error('[AppStore] Error handling history replay', { terminalId, error })
       }
     }
 
@@ -417,12 +414,12 @@ export const createTerminalSlice: StateCreator<
         terminalId,
         dataChannel,
         exitChannel,
-        bufferReplayChannel
+        historyReplayChannel
       })
 
       window.electronAPI.on(dataChannel, handleData)
       window.electronAPI.on(exitChannel, handleExit)
-      window.electronAPI.on(bufferReplayChannel, handleBufferReplay)
+      window.electronAPI.on(historyReplayChannel, handleHistoryReplay)
 
       storeLogger.debug('[AppStore] Event listeners setup successfully', { terminalId })
 
@@ -433,7 +430,7 @@ export const createTerminalSlice: StateCreator<
           if (window.electronAPI.removeListener) {
             window.electronAPI.removeListener(dataChannel, handleData)
             window.electronAPI.removeListener(exitChannel, handleExit)
-            window.electronAPI.removeListener(bufferReplayChannel, handleBufferReplay)
+            window.electronAPI.removeListener(historyReplayChannel, handleHistoryReplay)
           }
         }
       ]
@@ -511,61 +508,16 @@ export const createTerminalSlice: StateCreator<
     return get().terminals.find(t => t.id === id)
   },
 
-  // Clean buffer management
-  saveCleanBufferBeforeClose: async (terminalId) => {
-    storeLogger.info('[AppStore] Saving clean buffer before close', { terminalId })
-
-    try {
-      const instance = get().getTerminalInstance(terminalId)
-      if (!instance?.xterm) {
-        storeLogger.warn('[AppStore] No XTerm instance found for clean buffer extraction', { terminalId })
-        return
-      }
-
-      const xterm = instance.xterm
-      const buffer = xterm.buffer.active
-      const cleanLines: string[] = []
-
-      // Extract clean text from XTerm buffer
-      for (let i = 0; i < buffer.length; i++) {
-        try {
-          const line = buffer.getLine(i)
-          if (line) {
-            // Use translateToString(true) to get clean text without ANSI codes
-            const lineText = line.translateToString(true)
-            if (lineText.trim().length > 0 || cleanLines.length > 0) {
-              // Include non-empty lines or empty lines that are between content
-              cleanLines.push(lineText)
-            }
-          }
-        } catch (error) {
-          storeLogger.error('[AppStore] Error extracting line from XTerm buffer', { terminalId, lineIndex: i, error })
-        }
-      }
-
-      // Remove trailing empty lines
-      while (cleanLines.length > 0 && cleanLines[cleanLines.length - 1].trim() === '') {
-        cleanLines.pop()
-      }
-
-      if (cleanLines.length > 0) {
-        storeLogger.info('[AppStore] Extracted clean buffer', { terminalId, lineCount: cleanLines.length })
-
-        // Send clean buffer to backend
-        if (window.electronAPI?.terminal?.updateCleanBuffer) {
-          await window.electronAPI.terminal.updateCleanBuffer(terminalId, cleanLines)
-          storeLogger.info('[AppStore] ✅ Clean buffer saved to backend', { terminalId })
-        } else {
-          storeLogger.warn('[AppStore] updateCleanBuffer API not available', { terminalId })
-        }
-      } else {
-        storeLogger.info('[AppStore] No clean buffer content to save', { terminalId })
-      }
-    } catch (error) {
-      storeLogger.error('[AppStore] Failed to save clean buffer', { terminalId, error })
-      throw error
-    }
+  // Command history management
+  clearCommandHistory: (terminalId) => {
+    set((state) => ({
+      terminals: state.terminals.map(t =>
+        t.id === terminalId ? { ...t, commandHistory: undefined } : t
+      )
+    }))
+    storeLogger.debug('[AppStore] Command history cleared from terminal state', { terminalId })
   },
+
 
   // Session persistence
   saveTerminalState: async (projectId) => {
@@ -644,7 +596,8 @@ export const createTerminalSlice: StateCreator<
 
     storeLogger.info('[AppStore] ✅ Workspace state applied successfully', { 
       terminalCount: terminals.length,
-      activeTerminalId 
+      activeTerminalId ,
+      terminalMode: terminals.length > 0 ? 'active' : 'welcome',
     })
   }
 })

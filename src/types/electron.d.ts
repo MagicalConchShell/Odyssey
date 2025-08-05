@@ -87,7 +87,6 @@ declare global {
         getState: (terminalId: string) => Promise<ApiResponse<any>>;
         cwdChanged: (terminalId: string, newCwd: string) => Promise<ApiResponse<void>>;
         registerWebContents: (terminalId: string) => Promise<ApiResponse<void>>;
-        updateCleanBuffer: (terminalId: string, cleanLines: string[]) => Promise<ApiResponse<void>>;
       };
 
       // Event listeners

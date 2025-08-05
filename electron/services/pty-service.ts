@@ -40,7 +40,18 @@ export class PtyService extends EventEmitter {
    * Get the shell integration script path based on shell type
    */
   private getShellIntegrationScript(shell: string): string | null {
-    const scriptsDir = join(dirname(__dirname), 'scripts')
+    // Handle both development and built application paths
+    const currentDir = __dirname
+    console.log(`[PtyService] Current directory: ${currentDir}`)
+    
+    // Try multiple possible script locations
+    const possibleScriptDirs = [
+      join(dirname(__dirname), 'scripts'),  // Development: electron/scripts
+      join(dirname(dirname(dirname(__dirname))), 'electron', 'scripts'),  // Built app: from dist/electron back to electron/scripts
+      join(dirname(dirname(__dirname)), 'electron', 'scripts'),  // Alternative built app path
+    ]
+    
+    console.log(`[PtyService] Trying script directories:`, possibleScriptDirs)
     
     // Determine script based on shell type
     let scriptName: string | null = null
@@ -54,14 +65,18 @@ export class PtyService extends EventEmitter {
       scriptName = 'odyssey-integration.bash'
     }
     
-    const scriptPath = join(scriptsDir, scriptName)
-    
-    // Check if script exists
-    if (existsSync(scriptPath)) {
-      return scriptPath
+    // Try each possible directory until we find the script
+    for (const scriptsDir of possibleScriptDirs) {
+      const scriptPath = join(scriptsDir, scriptName)
+      console.log(`[PtyService] Checking: ${scriptPath}`)
+      
+      if (existsSync(scriptPath)) {
+        console.log(`[PtyService] ✅ Found shell integration script: ${scriptPath}`)
+        return scriptPath
+      }
     }
     
-    console.warn(`[PtyService] Shell integration script not found: ${scriptPath}`)
+    console.warn(`[PtyService] ❌ Shell integration script '${scriptName}' not found in any directory`)
     return null
   }
 
@@ -78,10 +93,10 @@ export class PtyService extends EventEmitter {
     
     // Create shell command that sources the integration script
     if (shell.includes('zsh')) {
-      // For ZSH: start with login shell and source integration
+      // For ZSH: avoid exec to prevent losing function definitions
       return {
         command: shell,
-        args: ['--login', '-i', '-c', `source "${integrationScript}"; exec zsh`]
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; zsh`]
       }
     } else if (shell.includes('bash')) {
       // For Bash: start with login shell and source integration
@@ -118,15 +133,21 @@ export class PtyService extends EventEmitter {
     const { command, args } = this.createShellCommand(selectedShell)
 
     // Create PTY process with integration
+    const env = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      ODYSSEY_TERMINAL: '1',
+      BASH_SILENCE_DEPRECATION_WARNING: '1',
+      ZSH_DISABLE_COMPFIX: 'true',
+    }
+    
+    console.log(`[PtyService] Environment variables for PTY ${id}:`)
+    console.log(`[PtyService] ODYSSEY_TERMINAL=${env.ODYSSEY_TERMINAL}`)
+    console.log(`[PtyService] TERM=${env.TERM}`)
+    
     const ptyProcess = pty.spawn(command, args, {
       cwd: cwd,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        ODYSSEY_TERMINAL: '1',
-        BASH_SILENCE_DEPRECATION_WARNING: '1',
-        ZSH_DISABLE_COMPFIX: 'true',
-      },
+      env,
       cols: cols,
       rows: rows
     })
@@ -155,7 +176,11 @@ export class PtyService extends EventEmitter {
       this.ptyMap.delete(id)
     })
 
-    console.log(`[PtyService] Created PTY ${id} with shell ${selectedShell} in ${cwd} (integration: ${args.length > 0 ? 'enabled' : 'disabled'})`)
+    console.log(`[PtyService] Created PTY ${id} with shell ${selectedShell} in ${cwd}`)
+    console.log(`[PtyService] Shell integration: ${args.length > 0 ? '✅ enabled' : '❌ disabled'}`)
+    if (args.length > 0) {
+      console.log(`[PtyService] Integration command: ${command} ${args.join(' ')}`)
+    }
   }
 
   /**

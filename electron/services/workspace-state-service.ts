@@ -31,12 +31,9 @@ export class WorkspaceStateService implements IWorkspaceStateService {
   async saveWorkspaceState(projectPath: string, state: WorkspaceState): Promise<void> {
     try {
       const projectHash = this.hashProjectPath(projectPath);
-      const projectDir = this.getProjectDir(projectHash);
       const statePath = this.getWorkspaceStatePath(projectHash);
       
-      console.log(`💾 Starting save workspace state for project: ${projectPath}`);
-      console.log(`📂 Project hash: ${projectHash}, directory: ${projectDir}`);
-      console.log(`📄 State path: ${statePath}`);
+      console.log(`💾 Starting save project ${projectPath} workspace state : ${statePath}`);
       
       await this.ensureProjectDir(projectHash);
 
@@ -289,7 +286,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
         shell: serialized.shell,
         createdAt: serialized.createdAt,
         isActive: serialized.isAlive,
-        buffer: serialized.buffer,
+        commandHistory: serialized.commandHistory,
         currentCwd: serialized.currentCwd,
         runningProcess: serialized.runningProcess
       }));
@@ -302,7 +299,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       };
 
       await this.saveWorkspaceState(projectPath, workspaceState);
-      console.log(`✅ Saved workspace state with ${persistedTerminals.length} terminals and ${persistedTerminals.reduce((total, t) => total + (t.buffer?.length || 0), 0)} total buffer lines`);
+      console.log(`✅ Saved workspace state with ${persistedTerminals.length} terminals and ${persistedTerminals.reduce((total, t) => total + (t.commandHistory?.length || 0), 0)} total command history entries`);
     } catch (error: any) {
       console.error('❌ Failed to save workspace state from terminal service:', error.message);
       throw error;
@@ -313,7 +310,7 @@ export class WorkspaceStateService implements IWorkspaceStateService {
    * Load workspace state and restore to TerminalManagementService
    * This is a convenience method that loads state and restores terminals
    */
-  async loadToTerminalService(projectPath: string, terminalService: TerminalManagementService, options: { restoreBuffer?: boolean } = {}): Promise<{ activeTerminalId: string | null; terminalCount: number }> {
+  async loadToTerminalService(projectPath: string, terminalService: TerminalManagementService): Promise<{ activeTerminalId: string | null; terminalCount: number }> {
     try {
       const workspaceState = await this.loadWorkspaceState(projectPath);
       
@@ -331,17 +328,17 @@ export class WorkspaceStateService implements IWorkspaceStateService {
         cols: 80, // Default dimensions
         rows: 30,
         isAlive: false, // Will be set to true when PTY is created
-        buffer: persisted.buffer || [],
+        commandHistory: persisted.commandHistory || [],
         createdAt: persisted.createdAt,
         currentCwd: persisted.currentCwd,
         runningProcess: persisted.runningProcess
       }));
 
       // Restore terminals to the service
-      terminalService.restoreFromSerialized(serializedTerminals, options);
+      terminalService.restoreFromSerialized(serializedTerminals);
 
-      const totalBufferLines = serializedTerminals.reduce((total, t) => total + t.buffer.length, 0);
-      console.log(`✅ Restored ${serializedTerminals.length} terminals with ${totalBufferLines} total buffer lines`);
+      const totalCommandEntries = serializedTerminals.reduce((total, t) => total + t.commandHistory.length, 0);
+      console.log(`✅ Restored ${serializedTerminals.length} terminals with ${totalCommandEntries} total command history entries`);
 
       return {
         activeTerminalId: workspaceState.activeTerminalId,
@@ -406,13 +403,20 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       return false;
     }
 
-    // Validate buffer if present
-    if (terminal.buffer !== undefined) {
-      if (!Array.isArray(terminal.buffer)) {
+    // Validate commandHistory if present
+    if (terminal.commandHistory !== undefined) {
+      if (!Array.isArray(terminal.commandHistory)) {
         return false;
       }
-      // Ensure all buffer entries are strings
-      if (!terminal.buffer.every((line: any) => typeof line === 'string')) {
+      // Validate each command history entry
+      if (!terminal.commandHistory.every((entry: any) => 
+        typeof entry === 'object' &&
+        typeof entry.command === 'string' &&
+        typeof entry.output === 'string' &&
+        typeof entry.exitCode === 'number' &&
+        typeof entry.timestamp === 'number' &&
+        typeof entry.cwd === 'string'
+      )) {
         return false;
       }
     }

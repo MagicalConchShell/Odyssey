@@ -10,7 +10,7 @@ import type { TerminalManagementService } from '../services/terminal-management-
 import { 
   getTerminalDataChannel,
   getTerminalExitChannel,
-  getTerminalBufferReplayChannel
+  getTerminalHistoryReplayChannel
 } from '../ipc-event-channels'
 
 // Service dependencies - injected during setup
@@ -18,9 +18,6 @@ let terminalManagementService: TerminalManagementService;
 
 // Map to store WebContents for each terminal
 const terminalWebContentsMap = new Map<string, WebContents>()
-
-// Track terminals that are currently replaying buffers to avoid data mixing
-const replayingTerminals = new Set<string>()
 
 /**
  * Create a new terminal session
@@ -48,11 +45,11 @@ export async function createTerminal(event: IpcMainInvokeEvent, workingDirectory
  * Write data to a terminal session
  */
 export async function writeToTerminal(_event: IpcMainInvokeEvent, terminalId: string, data: string): Promise<void> {
-  console.log(`[TerminalHandler] 📝 Writing to terminal ${terminalId}:`, {
-    dataLength: data.length,
-    dataPreview: data.slice(0, 50)
-  })
-  
+  // console.log(`[TerminalHandler] 📝 Writing to terminal ${terminalId}:`, {
+  //   dataLength: data.length,
+  //   dataPreview: data.slice(0, 50)
+  // })
+  //
   const success = terminalManagementService.write(terminalId, data)
   
   if (!success) {
@@ -60,7 +57,7 @@ export async function writeToTerminal(_event: IpcMainInvokeEvent, terminalId: st
     throw new Error(`Terminal ${terminalId} not found`)
   }
   
-  console.log(`[TerminalHandler] ✅ Successfully wrote to terminal ${terminalId}`)
+  // console.log(`[TerminalHandler] ✅ Successfully wrote to terminal ${terminalId}`)
 }
 
 /**
@@ -114,27 +111,6 @@ export async function handleCwdChanged(_event: IpcMainInvokeEvent, terminalId: s
   console.log(`[TerminalHandler] ✅ Successfully updated CWD for terminal ${terminalId}`)
 }
 
-/**
- * Update terminal buffer with clean text from frontend XTerm
- */
-export async function updateCleanBuffer(_event: IpcMainInvokeEvent, terminalId: string, cleanLines: string[]): Promise<void> {
-  console.log(`[TerminalHandler] 🧽 Updating clean buffer for terminal ${terminalId}:`, { lineCount: cleanLines.length })
-  
-  const terminal = terminalManagementService.getTerminal(terminalId)
-  if (!terminal) {
-    console.warn(`[TerminalHandler] ⚠️ Terminal ${terminalId} not found for buffer update`)
-    return
-  }
-  
-  try {
-    // Update the terminal's buffer with clean text
-    terminal.updateCleanBuffer(cleanLines)
-    console.log(`[TerminalHandler] ✅ Successfully updated clean buffer for terminal ${terminalId}`)
-  } catch (error) {
-    console.error(`[TerminalHandler] ❌ Failed to update clean buffer for terminal ${terminalId}:`, error)
-    throw error
-  }
-}
 
 /**
  * Register WebContents for a terminal (used during restoration)
@@ -145,34 +121,30 @@ export async function registerWebContents(event: IpcMainInvokeEvent, terminalId:
   // Store WebContents for this terminal
   terminalWebContentsMap.set(terminalId, event.sender)
   
-  // Check if this terminal has buffer contents to replay (for restoration)
+  // Check if this terminal has command history to replay (for restoration)
   const terminal = terminalManagementService.getTerminal(terminalId)
   if (terminal) {
-    const buffer = terminal.getBuffer()
-    if (buffer && buffer.length > 0) {
-      console.log(`[TerminalHandler] 🎬 Triggering buffer replay for terminal ${terminalId} (${buffer.length} lines)`)
+    const commandHistory = terminal.getCommandHistory()
+    if (commandHistory && commandHistory.length > 0) {
+      console.log(`[TerminalHandler] 🎬 Triggering history replay for terminal ${terminalId} (${commandHistory.length} commands)`)
       
-      // Mark terminal as replaying to prevent data mixing
-      replayingTerminals.add(terminalId)
-      
-      // Trigger buffer replay now that WebContents is ready
+      // Send command history to frontend for structured rendering
       setTimeout(() => {
         try {
-          terminal.replayBuffer()
-          console.log(`[TerminalHandler] ✅ Buffer replay completed for terminal ${terminalId}`)
-          
-          // Mark replay as complete
-          setTimeout(() => {
-            replayingTerminals.delete(terminalId)
-            console.log(`[TerminalHandler] 🎯 Buffer replay state cleared for terminal ${terminalId}`)
-          }, 500) // Wait a bit more to ensure replay data is processed
+          const webContents = terminalWebContentsMap.get(terminalId)
+          if (webContents && !webContents.isDestroyed()) {
+            const channel = getTerminalHistoryReplayChannel(terminalId)
+            webContents.send(channel, commandHistory)
+            console.log(`[TerminalHandler] ✅ History replay sent for terminal ${terminalId}`)
+          } else {
+            console.warn(`[TerminalHandler] ⚠️ Cannot send history replay - no valid webContents for terminal ${terminalId}`)
+          }
         } catch (error) {
-          console.error(`[TerminalHandler] ❌ Failed to replay buffer for terminal ${terminalId}:`, error)
-          replayingTerminals.delete(terminalId) // Clean up on error
+          console.error(`[TerminalHandler] ❌ Failed to send history replay for terminal ${terminalId}:`, error)
         }
       }, 100) // Small delay to ensure WebContents is fully ready
     } else {
-      console.log(`[TerminalHandler] 📭 No buffer to replay for terminal ${terminalId}`)
+      console.log(`[TerminalHandler] 📭 No command history to replay for terminal ${terminalId}`)
     }
   }
   
@@ -193,7 +165,7 @@ export async function getTerminalState(_event: IpcMainInvokeEvent, terminalId: s
     isActive: true,
     workingDirectory: terminal.getCurrentCwd() || '/tmp',
     shell: 'bash',
-    buffer: terminal.getBuffer() || []
+    commandHistory: terminal.getCommandHistory() || []
   }
 }
 
@@ -214,25 +186,19 @@ export function initializeTerminalHandlers(service: TerminalManagementService): 
  * Setup TerminalManagementService event forwarding to renderer
  */
 function setupTerminalServiceEvents() {
-  // Forward data events to renderer (only if not currently replaying buffer)
+  // Forward data events to renderer
   terminalManagementService.on('data', ({ id, data }) => {
     const webContents = terminalWebContentsMap.get(id)
     
-    // Skip forwarding live data if terminal is currently replaying buffer
-    if (replayingTerminals.has(id)) {
-      console.log(`[TerminalHandler] 🚫 Skipping live data forward during buffer replay for terminal ${id}`)
-      return
-    }
-    
-    console.log(`[TerminalHandler] 📨 Forwarding data from PTY ${id}:`, {
-      dataLength: data.length,
-      hasWebContents: !!webContents,
-      isDestroyed: webContents?.isDestroyed()
-    })
+    // console.log(`[TerminalHandler] 📨 Forwarding data from PTY ${id}:`, {
+    //   dataLength: data.length,
+    //   hasWebContents: !!webContents,
+    //   isDestroyed: webContents?.isDestroyed()
+    // })
     
     if (webContents && !webContents.isDestroyed()) {
       const channel = getTerminalDataChannel(id)
-      console.log(`[TerminalHandler] 📡 Sending data on channel ${channel}`)
+      // console.log(`[TerminalHandler] 📡 Sending data on channel ${channel}`)
       webContents.send(channel, data)
     } else {
       console.warn(`[TerminalHandler] ⚠️ Cannot forward data - no valid webContents for terminal ${id}`)
@@ -243,28 +209,6 @@ function setupTerminalServiceEvents() {
     }
   })
 
-  // Forward buffer replay events to renderer (separate from live data)
-  terminalManagementService.on('buffer-replay', ({ id, data }) => {
-    const webContents = terminalWebContentsMap.get(id)
-    
-    console.log(`[TerminalHandler] 🎬 Forwarding buffer replay for terminal ${id}:`, {
-      dataLength: data.length,
-      hasWebContents: !!webContents,
-      isDestroyed: webContents?.isDestroyed()
-    })
-    
-    if (webContents && !webContents.isDestroyed()) {
-      const channel = getTerminalBufferReplayChannel(id)
-      console.log(`[TerminalHandler] 📡 Sending buffer replay on channel ${channel}`)
-      webContents.send(channel, data)
-    } else {
-      console.warn(`[TerminalHandler] ⚠️ Cannot forward buffer replay - no valid webContents for terminal ${id}`)
-      // Clean up invalid WebContents reference
-      if (webContents) {
-        terminalWebContentsMap.delete(id)
-      }
-    }
-  })
 
   // Forward exit events to renderer
   terminalManagementService.on('exit', ({ id, exitCode }) => {

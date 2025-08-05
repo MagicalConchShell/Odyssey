@@ -336,20 +336,23 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(serversByScope).map(([scope, scopeServers]: [string, McpServer[]]) => (
+          {Object.entries(serversByScope).map(([scope, scopeServers]) => {
+            const typedScopeServers = scopeServers as McpServer[];
+            return (
             <div key={scope} className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 {getScopeIcon(scope)}
                 <span className="font-medium">{getScopeDisplayName(scope)}</span>
-                <span className="text-muted-foreground">({scopeServers.length})</span>
+                <span className="text-muted-foreground">({typedScopeServers.length})</span>
               </div>
               <AnimatePresence>
                 <div className="space-y-2">
-                  {scopeServers.map(renderServerItem)}
+                  {typedScopeServers.map(renderServerItem)}
                 </div>
               </AnimatePresence>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -47,10 +47,6 @@ export class TerminalManagementService extends EventEmitter {
       this.terminalMap.delete(id)
     })
 
-    // Forward buffer replay events (separate from live data)
-    terminalInstance.on('buffer-replay', (data) => {
-      this.emit('buffer-replay', data)
-    })
 
     // Forward dynamic tracking events
     terminalInstance.on('cwd-changed', (data) => {
@@ -163,7 +159,7 @@ export class TerminalManagementService extends EventEmitter {
    * Restore terminals from serialized data
    * This creates new PTY processes but restores historical state
    */
-  restoreFromSerialized(serializedTerminals: SerializedTerminalInstance[], options: { restoreBuffer?: boolean } = {}): void {
+  restoreFromSerialized(serializedTerminals: SerializedTerminalInstance[]): void {
     console.log(`[TerminalManagementService] Restoring ${serializedTerminals.length} terminals`)
 
     for (const serializedTerminal of serializedTerminals) {
@@ -175,7 +171,7 @@ export class TerminalManagementService extends EventEmitter {
         }
 
         // Create terminal instance from serialized data
-        const terminalInstance = TerminalInstance.fromSerialized(serializedTerminal, options)
+        const terminalInstance = TerminalInstance.fromSerialized(serializedTerminal)
 
         // Store instance
         this.terminalMap.set(serializedTerminal.id, terminalInstance)
@@ -191,10 +187,6 @@ export class TerminalManagementService extends EventEmitter {
           this.terminalMap.delete(serializedTerminal.id)
         })
 
-        // Forward buffer replay events (separate from live data)
-        terminalInstance.on('buffer-replay', (data) => {
-          this.emit('buffer-replay', data)
-        })
 
         // Forward dynamic tracking events
         terminalInstance.on('cwd-changed', (data) => {
@@ -205,10 +197,9 @@ export class TerminalManagementService extends EventEmitter {
           this.emit('process-changed', data)
         })
 
-        // Store buffer restoration info but don't replay automatically
-        // Buffer replay will be triggered when WebContents registers
-        if (options.restoreBuffer && serializedTerminal.buffer && serializedTerminal.buffer.length > 0) {
-          console.log(`[TerminalManagementService] Terminal ${serializedTerminal.id} restored with ${serializedTerminal.buffer.length} buffer lines, waiting for WebContents registration`)
+        // Command history is automatically restored in fromSerialized
+        if (serializedTerminal.commandHistory && serializedTerminal.commandHistory.length > 0) {
+          console.log(`[TerminalManagementService] Terminal ${serializedTerminal.id} restored with ${serializedTerminal.commandHistory.length} command history entries`)
         }
 
         console.log(`[TerminalManagementService] Restored terminal ${serializedTerminal.id}`)
@@ -220,31 +211,6 @@ export class TerminalManagementService extends EventEmitter {
     console.log(`[TerminalManagementService] Terminal restoration complete - ${this.getCount()} terminals active`)
   }
 
-  /**
-   * Clear buffer for a specific terminal (for manual clear operations)
-   */
-  clearBuffer(id: string): boolean {
-    const terminalInstance = this.terminalMap.get(id)
-    if (!terminalInstance) {
-      console.warn(`[TerminalManagementService] Attempted to clear buffer for non-existent terminal ${id}`)
-      return false
-    }
-
-    terminalInstance.clearBuffer()
-    return true
-  }
-
-  /**
-   * Get buffer contents for a terminal
-   */
-  getBuffer(id: string): string[] | null {
-    const terminalInstance = this.terminalMap.get(id)
-    if (!terminalInstance) {
-      return null
-    }
-
-    return terminalInstance.getBuffer()
-  }
 
   /**
    * Cleanup all terminal instances

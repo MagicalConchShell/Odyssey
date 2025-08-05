@@ -5,6 +5,15 @@
  * Clean, simple types that focus on essential terminal functionality
  */
 
+// Command history entry for structured terminal history
+export interface CommandHistoryEntry {
+  command: string
+  output: string
+  exitCode: number
+  timestamp: number
+  cwd: string
+}
+
 // Core terminal interface - simple, direct terminal instance
 export interface Terminal {
   id: string
@@ -14,6 +23,7 @@ export interface Terminal {
   shell?: string
   isActive: boolean
   createdAt: number
+  commandHistory?: CommandHistoryEntry[] // For history restoration
 }
 
 // Terminal creation options

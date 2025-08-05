@@ -2,6 +2,15 @@
  * Workspace state type definitions for terminal persistence
  */
 
+// Command history entry for structured terminal history
+export interface CommandHistoryEntry {
+  command: string;
+  output: string;
+  exitCode: number;
+  timestamp: number;
+  cwd: string;
+}
+
 /**
  * Terminal configuration for persistence
  */
@@ -13,7 +22,7 @@ export interface PersistedTerminal {
   shell?: string;
   createdAt: number;
   isActive: boolean;
-  buffer?: string[]; // Terminal output history lines
+  commandHistory?: CommandHistoryEntry[]; // Command history entries for structured terminal history
   currentCwd?: string; // Dynamic CWD that may differ from initial cwd
   runningProcess?: string; // Currently running process name
 }
