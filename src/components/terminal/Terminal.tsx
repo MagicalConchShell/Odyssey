@@ -40,11 +40,32 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
   const search = useTerminalSearch(terminalId)
   useTerminalResize(terminalId, terminalRef)
 
+  // Copy and paste handlers
+  const handleCopy = useCallback(() => {
+    const instance = getTerminalInstance(terminalId)
+    if (instance?.xterm) {
+      const selection = instance.xterm.getSelection()
+      if (selection && selection.trim()) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(selection).catch((error) => {
+            terminalLogger.warn('Failed to copy selection to clipboard', {terminalId, error})
+          })
+        }
+      }
+    }
+  }, [terminalId, getTerminalInstance])
+
+  const handlePaste = useCallback((text: string) => {
+    writeToTerminal(terminalId, text)
+  }, [terminalId, writeToTerminal])
+
   // Use terminal shortcuts hook
   useTerminalShortcuts(terminalRef, {
     onSearchToggle: () => search.setIsSearchVisible(true),
     onSearchClose: search.handleSearchClose,
-    isSearchVisible: search.isSearchVisible
+    isSearchVisible: search.isSearchVisible,
+    onCopy: handleCopy,
+    onPaste: handlePaste
   })
 
   // Terminal themes
@@ -54,7 +75,9 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       foreground: '#f8f8f2',
       cursor: '#f8f8f0',
       cursorAccent: '#272822',
-      selection: '#49483e',
+      selectionBackground: '#4A90E2',
+      selectionForeground: '#ffffff',
+      selectionInactiveBackground: '#3A3A3A',
       black: '#272822',
       red: '#f92672',
       green: '#a6e22e',
@@ -77,7 +100,9 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       foreground: '#24292f',
       cursor: '#24292f',
       cursorAccent: '#ffffff',
-      selection: '#b3d4fc',
+      selectionBackground: '#0066CC',
+      selectionForeground: '#ffffff',
+      selectionInactiveBackground: '#CCCCCC',
       black: '#24292f',
       red: '#cf222e',
       green: '#116329',
@@ -163,7 +188,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
 
     // Only create event handlers if needed (to prevent duplicates)
-    let inputDisposable, resizeDisposable
+    let inputDisposable, resizeDisposable, selectionDisposable
 
     if (needsEventHandlers) {
       // Handle user input - write to backend
@@ -175,12 +200,25 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       resizeDisposable = terminal.onResize(({cols, rows}) => {
         resizeTerminal(terminalId, cols, rows)
       })
+
+      // Handle selection change - auto copy to clipboard
+      selectionDisposable = terminal.onSelectionChange(() => {
+        const selection = terminal.getSelection()
+        if (selection && selection.trim()) {
+          // Use modern clipboard API if available
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(selection).catch((error) => {
+              terminalLogger.warn('Failed to copy selection to clipboard', {terminalId, error})
+            })
+          }
+        }
+      })
     }
 
     // Create or update instance object
     if (instance) {
       // Update existing instance with new event handlers
-      instance.disposables = [inputDisposable, resizeDisposable].filter(Boolean)
+      instance.disposables = [inputDisposable, resizeDisposable, selectionDisposable].filter(Boolean)
     } else {
       // Create new instance object
       instance = {
@@ -188,7 +226,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
         fitAddon,
         searchAddon,
         webglAddon,
-        disposables: [inputDisposable, resizeDisposable],
+        disposables: [inputDisposable, resizeDisposable, selectionDisposable],
         isAttached: false
       }
     }

@@ -10,13 +10,15 @@ export interface TerminalShortcutsOptions {
   onSearchToggle: () => void
   onSearchClose: () => void
   isSearchVisible: boolean
+  onCopy?: () => void
+  onPaste?: (text: string) => void
 }
 
 export function useTerminalShortcuts(
   terminalRef: RefObject<HTMLDivElement>,
   options: TerminalShortcutsOptions
 ): void {
-  const { onSearchToggle, onSearchClose, isSearchVisible } = options
+  const { onSearchToggle, onSearchClose, isSearchVisible, onCopy, onPaste } = options
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -32,6 +34,30 @@ export function useTerminalShortcuts(
         onSearchToggle()
       }
 
+      // Ctrl+Shift+C or Cmd+C to copy selection
+      if ((e.ctrlKey && e.shiftKey && e.key === 'C') || (e.metaKey && e.key === 'c')) {
+        e.preventDefault()
+        if (onCopy) {
+          onCopy()
+        }
+      }
+
+      // Ctrl+Shift+V or Cmd+V to paste
+      if ((e.ctrlKey && e.shiftKey && e.key === 'V') || (e.metaKey && e.key === 'v')) {
+        e.preventDefault()
+        if (onPaste && navigator.clipboard && navigator.clipboard.readText) {
+          navigator.clipboard.readText()
+            .then((text) => {
+              if (text) {
+                onPaste(text)
+              }
+            })
+            .catch((error) => {
+              console.warn('Failed to read from clipboard:', error)
+            })
+        }
+      }
+
       if (e.key === 'Escape' && isSearchVisible) {
         e.preventDefault()
         onSearchClose()
@@ -42,5 +68,5 @@ export function useTerminalShortcuts(
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [terminalRef, onSearchToggle, onSearchClose, isSearchVisible])
+  }, [terminalRef, onSearchToggle, onSearchClose, isSearchVisible, onCopy, onPaste])
 }
