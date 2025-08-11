@@ -1,0 +1,268 @@
+/**
+ * PtyService - Clean PTY Process Lifecycle Management
+ * 
+ * This service implements the SOTA architecture from terminal_architecture_v1.md
+ * It handles ONLY PTY process management - no UI knowledge, no complex recovery logic
+ * Enhanced with shell integration for real-time CWD tracking via OSC sequences
+ */
+
+import * as pty from 'node-pty'
+import { EventEmitter } from 'events'
+import { join, dirname } from 'path'
+import { existsSync } from 'fs'
+
+interface PtyInstance {
+  id: string
+  ptyProcess: pty.IPty
+  shell: string
+  cwd: string
+  cols: number
+  rows: number
+  createdAt: number
+}
+
+export class PtyService extends EventEmitter {
+  private static instance: PtyService | null = null
+  private ptyMap: Map<string, PtyInstance> = new Map()
+
+  private constructor() {
+    super()
+  }
+
+  static getInstance(): PtyService {
+    if (!PtyService.instance) {
+      PtyService.instance = new PtyService()
+    }
+    return PtyService.instance
+  }
+
+  /**
+   * Get the shell integration script path based on shell type
+   */
+  private getShellIntegrationScript(shell: string): string | null {
+    // Handle both development and built application paths
+    const currentDir = __dirname
+    console.log(`[PtyService] Current directory: ${currentDir}`)
+    
+    // Try multiple possible script locations
+    const possibleScriptDirs = [
+      join(dirname(__dirname), 'scripts'),  // Development: electron/scripts
+      join(dirname(dirname(dirname(__dirname))), 'electron', 'scripts'),  // Built app: from dist/electron back to electron/scripts
+      join(dirname(dirname(__dirname)), 'electron', 'scripts'),  // Alternative built app path
+    ]
+    
+    console.log(`[PtyService] Trying script directories:`, possibleScriptDirs)
+    
+    // Determine script based on shell type
+    let scriptName: string | null = null
+    
+    if (shell.includes('zsh')) {
+      scriptName = 'odyssey-integration.zsh'
+    } else if (shell.includes('bash')) {
+      scriptName = 'odyssey-integration.bash'
+    } else {
+      // For other shells, try bash as fallback
+      scriptName = 'odyssey-integration.bash'
+    }
+    
+    // Try each possible directory until we find the script
+    for (const scriptsDir of possibleScriptDirs) {
+      const scriptPath = join(scriptsDir, scriptName)
+      console.log(`[PtyService] Checking: ${scriptPath}`)
+      
+      if (existsSync(scriptPath)) {
+        console.log(`[PtyService] ✅ Found shell integration script: ${scriptPath}`)
+        return scriptPath
+      }
+    }
+    
+    console.warn(`[PtyService] ❌ Shell integration script '${scriptName}' not found in any directory`)
+    return null
+  }
+
+  /**
+   * Create shell command with integration script injection
+   */
+  private createShellCommand(shell: string): { command: string; args: string[] } {
+    const integrationScript = this.getShellIntegrationScript(shell)
+    
+    if (!integrationScript) {
+      // No integration available, use shell directly
+      return { command: shell, args: [] }
+    }
+    
+    // Create shell command that sources the integration script
+    if (shell.includes('zsh')) {
+      // For ZSH: avoid exec to prevent losing function definitions
+      return {
+        command: shell,
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; zsh`]
+      }
+    } else if (shell.includes('bash')) {
+      // For Bash: start with login shell and source integration
+      return {
+        command: shell,
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; exec bash`]
+      }
+    } else {
+      // For other shells, try bash approach as fallback
+      return {
+        command: shell,
+        args: ['--login', '-i', '-c', `source "${integrationScript}"; exec "${shell}"`]
+      }
+    }
+  }
+
+  /**
+   * Create a new PTY process with shell integration
+   */
+  create(id: string, shell: string, cwd: string, cols: number = 80, rows: number = 30): void {
+    // Clean up any existing PTY with the same ID
+    if (this.ptyMap.has(id)) {
+      this.kill(id)
+    }
+
+    // Determine default shell based on platform
+    const defaultShell = process.platform === 'win32' ? 'powershell.exe' : 
+                         process.platform === 'darwin' ? process.env.SHELL || '/bin/zsh' :
+                         '/bin/bash'
+    
+    const selectedShell = shell || defaultShell
+
+    // Create shell command with integration script injection
+    const { command, args } = this.createShellCommand(selectedShell)
+
+    // Create PTY process with integration
+    const env = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      ODYSSEY_TERMINAL: '1',
+      BASH_SILENCE_DEPRECATION_WARNING: '1',
+      ZSH_DISABLE_COMPFIX: 'true',
+    }
+    
+    console.log(`[PtyService] Environment variables for PTY ${id}:`)
+    console.log(`[PtyService] ODYSSEY_TERMINAL=${env.ODYSSEY_TERMINAL}`)
+    console.log(`[PtyService] TERM=${env.TERM}`)
+    
+    const ptyProcess = pty.spawn(command, args, {
+      cwd: cwd,
+      env,
+      cols: cols,
+      rows: rows
+    })
+
+    // Store PTY instance
+    const ptyInstance: PtyInstance = {
+      id,
+      ptyProcess,
+      shell: selectedShell,
+      cwd,
+      cols,
+      rows,
+      createdAt: Date.now()
+    }
+
+    this.ptyMap.set(id, ptyInstance)
+
+    // Set up event forwarding
+    ptyProcess.onData((data) => {
+      this.emit('data', { id, data })
+    })
+
+    ptyProcess.onExit(({ exitCode }) => {
+      this.emit('exit', { id, exitCode })
+      // Clean up from map
+      this.ptyMap.delete(id)
+    })
+
+    console.log(`[PtyService] Created PTY ${id} with shell ${selectedShell} in ${cwd}`)
+    console.log(`[PtyService] Shell integration: ${args.length > 0 ? '✅ enabled' : '❌ disabled'}`)
+    if (args.length > 0) {
+      console.log(`[PtyService] Integration command: ${command} ${args.join(' ')}`)
+    }
+  }
+
+  /**
+   * Write data to PTY process
+   */
+  write(id: string, data: string): boolean {
+    const ptyInstance = this.ptyMap.get(id)
+    if (!ptyInstance) {
+      console.warn(`[PtyService] Attempted to write to non-existent PTY ${id}`)
+      return false
+    }
+
+    try {
+      ptyInstance.ptyProcess.write(data)
+      return true
+    } catch (error) {
+      console.error(`[PtyService] Error writing to PTY ${id}:`, error)
+      return false
+    }
+  }
+
+  /**
+   * Resize PTY process
+   */
+  resize(id: string, cols: number, rows: number): boolean {
+    const ptyInstance = this.ptyMap.get(id)
+    if (!ptyInstance) {
+      console.warn(`[PtyService] Attempted to resize non-existent PTY ${id}`)
+      return false
+    }
+
+    try {
+      ptyInstance.ptyProcess.resize(cols, rows)
+      // Update stored dimensions
+      ptyInstance.cols = cols
+      ptyInstance.rows = rows
+      return true
+    } catch (error) {
+      console.error(`[PtyService] Error resizing PTY ${id}:`, error)
+      return false
+    }
+  }
+
+  /**
+   * Kill PTY process
+   */
+  kill(id: string): boolean {
+    const ptyInstance = this.ptyMap.get(id)
+    if (!ptyInstance) {
+      console.warn(`[PtyService] Attempted to kill non-existent PTY ${id}`)
+      return false
+    }
+
+    try {
+      ptyInstance.ptyProcess.kill()
+      this.ptyMap.delete(id)
+      console.log(`[PtyService] Killed PTY ${id}`)
+      return true
+    } catch (error) {
+      console.error(`[PtyService] Error killing PTY ${id}:`, error)
+      return false
+    }
+  }
+
+  /**
+   * Cleanup all PTY processes
+   */
+  cleanup(): void {
+    console.log(`[PtyService] Cleaning up ${this.ptyMap.size} PTY processes`)
+    
+    for (const [id, ptyInstance] of this.ptyMap) {
+      try {
+        ptyInstance.ptyProcess.kill()
+      } catch (error) {
+        console.error(`[PtyService] Error killing PTY ${id} during cleanup:`, error)
+      }
+    }
+    
+    this.ptyMap.clear()
+    console.log('[PtyService] Cleanup complete')
+  }
+}
+
+// Export singleton instance
+export const ptyService = PtyService.getInstance()
