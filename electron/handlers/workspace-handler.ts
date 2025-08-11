@@ -17,8 +17,9 @@ let workspaceStateService: WorkspaceStateService;
 let terminalManagementService: TerminalManagementService;
 
 /**
- * 加载一个项目到工作区，这会关闭当前所有终端，并恢复目标项目的所有终端和状态。
- * 这是用户点击"打开项目"时调用的核心方法。
+ * Loads a project into the workspace. This closes all current terminals
+ * and restores all terminals and state for the target project.
+ * This is the core method called when a user clicks "Open Project".
  */
 export async function load(
   _event: IpcMainInvokeEvent,
