@@ -2,7 +2,7 @@
   <img src="./public/Odyssey.png" alt="Odyssey Logo" width="200">
 </p>
 
-<h1 align="center">Claudia</h1>
+<h1 align="center">Odyssey</h1>
 
 <p align="center">
   A modern, AI-native desktop application built for developers.
