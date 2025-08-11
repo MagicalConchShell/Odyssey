@@ -47,7 +47,7 @@ export async function load(
   console.log(`📥 Loading workspace state for project: ${project.path}`);
   
   // Clean current terminals
-  terminalManagementService.cleanup();
+  // terminalManagementService.cleanup();
   
   // Load and restore terminals to backend service
   const result = await service.loadToTerminalService(
@@ -109,6 +109,9 @@ export async function save(
   );
   
   console.log(`✅ Saved workspace state for project: ${project.path}`);
+
+  // Clean current terminals
+  terminalManagementService.cleanup();
 }
 
 /**
