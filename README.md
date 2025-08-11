@@ -23,28 +23,25 @@ Odyssey is a cross-platform desktop application built with Electron, React, and 
 Before you begin, ensure you have the following installed:
 
 - [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- [pnpm](https://pnpm.io/installation) (or npm / yarn)
 
 ### Installation & Running
 
-1.  **Clone the repository**
+1. **Clone the repository**
     ```bash
-    git clone https://github.com/your-username/odyssey.git
-    ```
-
-2.  **Navigate to the project directory**
-    ```bash
+    git clone https://github.com/MagicalConchShell/Odyssey.git
     cd Odyssey
     ```
 
-3.  **Install dependencies**
+2. **Install dependencies**
     ```bash
-    pnpm install
+    #  export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+    npm install
+    npx electron-rebuild
     ```
 
-4.  **Start the development server**
+3. **Start the development server**
     ```bash
-    pnpm dev
+    npm run dev
     ```
 
 
@@ -54,10 +51,12 @@ Contributions of all kinds are welcome! If you have ideas, suggestions, or bug r
 
 ## License
 
-This project is licensed under the [MIT](./LICENSE) License.
+This project is licensed under the [Apache 2.0](./LICENSE) License.
 
 ## Acknowledgments
 
-- **[Shadcn UI](https://ui.shadcn.com/)**
+- **[Electron](https://www.electronjs.org/)**
+- **[Vite](https://vite.dev/)**
+- **[shadcn](https://ui.shadcn.com/)**
 - **[node-pty](https://github.com/microsoft/node-pty)**
 - **[xterm.js](https://github.com/xtermjs/xterm.js)**
