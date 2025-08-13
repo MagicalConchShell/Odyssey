@@ -129,11 +129,15 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({
             {/* All terminals - show/hide based on active state */}
             <div className="flex-1 relative min-h-0">
               {terminals.map((terminal) => {
-                console.log('Rendering terminal:', terminal);
+                // Get terminal state for restoration
+                const terminalStates = (window as any)._odysseyTerminalStatesForRestore || {}
+                const initialContent = terminalStates[terminal.id] || undefined
+                
                 return (
                   <Terminal
                     key={terminal.id}
                     terminalId={terminal.id}
+                    initialContent={initialContent}
                     className={`absolute inset-0 w-full h-full ${
                       terminal.id === activeTerminalId ? 'block' : 'hidden'
                     }`}

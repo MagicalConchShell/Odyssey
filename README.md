@@ -9,6 +9,7 @@
 </p>
 
 ---
+![](https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat-square)
 
 Odyssey is a cross-platform desktop application built with Electron, React, and TypeScript. It aims to seamlessly integrate powerful AI capabilities, a smooth terminal experience, and efficient project management into your daily workflow.
 

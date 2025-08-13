@@ -40,7 +40,6 @@ export type {
 export type {
   WorkspaceState,
   ProjectWorkspaceMeta,
-  WorkspaceStateConfig
 } from '../../electron/types/workspace-state';
 
 // Additional frontend-specific types
@@ -80,18 +79,13 @@ declare global {
         write: (terminalId: string, data: string) => Promise<ApiResponse<void>>;
         resize: (terminalId: string, cols: number, rows: number) => Promise<ApiResponse<void>>;
         close: (terminalId: string) => Promise<ApiResponse<void>>;
-        info: (terminalId: string) => Promise<ApiResponse<any>>;
-        list: () => Promise<ApiResponse<any[]>>;
-        pause: (terminalId: string) => Promise<ApiResponse<void>>;
-        resume: (terminalId: string) => Promise<ApiResponse<void>>;
-        getState: (terminalId: string) => Promise<ApiResponse<any>>;
-        cwdChanged: (terminalId: string, newCwd: string) => Promise<ApiResponse<void>>;
         registerWebContents: (terminalId: string) => Promise<ApiResponse<void>>;
       };
 
       // Event listeners
       on?: (channel: string, listener: (...args: any[]) => void) => void;
       removeListener?: (channel: string, listener: (...args: any[]) => void) => void;
+      removeAllListeners?: (channel: string) => void;
 
       // Claude CLI handlers
       claudeCli: {
@@ -197,8 +191,9 @@ declare global {
           terminals: any[];
           activeTerminalId: string | null;
           project: Project;
+          terminalStates?: Record<string, string>;
         }>>;
-        save: (projectId: string) => Promise<ApiResponse<void>>;
+        save: (projectId: string, terminalStates?: Record<string, string>) => Promise<ApiResponse<void>>;
         listProjects: () => Promise<ApiResponse<ProjectWorkspaceMeta[]>>;
         cleanupOrphanedStates: () => Promise<ApiResponse<number>>;
       };

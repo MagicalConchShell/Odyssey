@@ -89,8 +89,9 @@ export const createProjectSlice: StateCreator<
       // Step 1: Save current project state (if exists)
       if (currentProject?.id) {
         console.log(`[AppStore] Saving current project state: ${currentProject.name}`)
-        await window.electronAPI.workspace.save(currentProject.id)
-        console.log(`[AppStore] ✅ Saved current project state`)
+        // Use saveTerminalState to collect and send terminal serialization states
+        await get().saveTerminalState(currentProject.id)
+        console.log(`[AppStore] ✅ Saved current project state with terminal serialization`)
       }
 
       // Step 2: Load new project state
@@ -101,11 +102,25 @@ export const createProjectSlice: StateCreator<
         throw new Error(result.error || 'Workspace load failed')
       }
 
-      const { terminals, activeTerminalId, project } = result.data
+      const { terminals, activeTerminalId, project, terminalStates } = result.data
 
       console.log(`[AppStore] ✅ Loaded project: ${terminals.length} terminals restored`)
 
-      // Step 3: Apply complete state atomically
+      // Step 3: Batch register WebContents for all terminals
+      if (terminals && terminals.length > 0) {
+        console.log(`[AppStore] 🔗 Registering WebContents for ${terminals.length} terminals...`)
+        for (const terminal of terminals) {
+          try {
+            await window.electronAPI.terminal.registerWebContents(terminal.id)
+            console.log(`[AppStore] ✅ WebContents registered for terminal: ${terminal.id}`)
+          } catch (error) {
+            console.error(`[AppStore] ❌ Failed to register WebContents for terminal ${terminal.id}:`, error)
+          }
+        }
+        console.log(`[AppStore] 🎉 WebContents registration complete`)
+      }
+
+      // Step 4: Apply complete state atomically
       set({
         currentProject: project,
         projectPath: project.path,
@@ -115,12 +130,13 @@ export const createProjectSlice: StateCreator<
         terminalMode: terminals.length > 0 ? 'active' : 'welcome'
       })
 
-      // Step 4: Apply terminal state
+      // Step 5: Apply terminal state with all data
       const setWorkspaceState = get().setWorkspaceState
       if (setWorkspaceState) {
         setWorkspaceState({
           terminals: terminals,
-          activeTerminalId: activeTerminalId
+          activeTerminalId: activeTerminalId,
+          terminalStates: terminalStates
         })
       } else {
         console.warn('[AppStore] setWorkspaceState action not available, terminals may not be properly restored')

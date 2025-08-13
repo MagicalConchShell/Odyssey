@@ -10,6 +10,7 @@ import React, {useEffect, useRef, useCallback} from 'react'
 import {Terminal as XTerminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import {SearchAddon} from '@xterm/addon-search'
+import {SerializeAddon} from '@xterm/addon-serialize'
 import {WebglAddon} from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import {useTheme} from '@/components/theme-provider'
@@ -19,22 +20,21 @@ import {useTerminalResize} from './hooks/useTerminalResize'
 import {useTerminalShortcuts} from './hooks/useTerminalShortcuts'
 import {TerminalSearch} from './TerminalSearch'
 import {terminalLogger} from '@/utils/logger'
-import type {CommandHistoryEntry} from '@/types/terminal'
 
 interface TerminalProps {
   terminalId: string
   className?: string
+  initialContent?: string // Serialized terminal state for restoration
 }
 
-export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) => {
+export const Terminal: React.FC<TerminalProps> = ({terminalId, className = '', initialContent}) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const {theme} = useTheme()
   const writeToTerminal = useAppStore((state) => state.writeToTerminal)
   const resizeTerminal = useAppStore((state) => state.resizeTerminal)
   const getTerminalInstance = useAppStore((state) => state.getTerminalInstance)
   const setTerminalInstance = useAppStore((state) => state.setTerminalInstance)
-  const getTerminal = useAppStore((state) => state.getTerminal)
-  const clearCommandHistory = useAppStore((state) => state.clearCommandHistory)
+  const setTerminalSerializeMethod = useAppStore((state) => state.setTerminalSerializeMethod)
 
   // Use specialized hooks
   const search = useTerminalSearch(terminalId)
@@ -131,13 +131,20 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     let needsEventHandlers = true
 
     if (instance) {
-      terminalLogger.verbose('Using existing XTerm instance', {terminalId})
+      terminalLogger.debug('Checking existing XTerm instance', {
+        terminalId,
+        hasDisposables: !!instance.disposables,
+        disposablesCount: instance.disposables?.length || 0,
+        isAttached: instance.isAttached
+      })
 
       // Check if this instance already has event handlers
       const hasExistingHandlers = instance.disposables && instance.disposables.length > 0
       if (hasExistingHandlers) {
+        terminalLogger.debug('Reusing existing XTerm instance with handlers', {terminalId})
         return instance
       } else {
+        terminalLogger.debug('Existing XTerm instance needs event handlers', {terminalId})
         terminal = instance.xterm
         needsEventHandlers = true
       }
@@ -160,7 +167,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
 
     // Get existing addons or create new ones
-    let fitAddon, searchAddon, webglAddon
+    let fitAddon, searchAddon, serializeAddon, webglAddon
 
     if (instance && !needsEventHandlers) {
       // This shouldn't happen based on our logic above, but just in case
@@ -169,16 +176,19 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       // Reuse existing addons
       fitAddon = instance.fitAddon
       searchAddon = instance.searchAddon
+      serializeAddon = instance.serializeAddon
       webglAddon = instance.webglAddon
     } else {
       // Create new addons
       fitAddon = new FitAddon()
       searchAddon = new SearchAddon()
+      serializeAddon = new SerializeAddon()
       webglAddon = new WebglAddon()
 
       // Load addons
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(searchAddon)
+      terminal.loadAddon(serializeAddon)
       try {
         terminal.loadAddon(webglAddon)
         terminalLogger.debug('WebGL addon loaded', {terminalId})
@@ -225,6 +235,7 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
         xterm: terminal,
         fitAddon,
         searchAddon,
+        serializeAddon,
         webglAddon,
         disposables: [inputDisposable, resizeDisposable, selectionDisposable],
         isAttached: false
@@ -233,6 +244,28 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
 
     // Store instance in Zustand
     setTerminalInstance(terminalId, instance)
+
+    // Register serialize method for workspace saving
+    if (instance.serializeAddon) {
+      const serializeMethod = () => {
+        try {
+          const serializedData = instance.serializeAddon?.serialize() || ''
+          terminalLogger.debug('🔄 Terminal serialized successfully', {
+            terminalId,
+            dataLength: serializedData.length,
+            hasData: !!serializedData
+          })
+          return serializedData
+        } catch (error) {
+          terminalLogger.error('Failed to serialize terminal', {terminalId, error})
+          return ''
+        }
+      }
+      setTerminalSerializeMethod(terminalId, serializeMethod)
+      terminalLogger.info('✅ Serialize method registered for terminal', {terminalId})
+    } else {
+      terminalLogger.warn('❌ SerializeAddon not available for terminal', {terminalId})
+    }
 
     return instance
   }, [terminalId, theme, writeToTerminal, resizeTerminal, getTerminalInstance, setTerminalInstance])
@@ -247,36 +280,51 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
       instance.xterm.open(terminalRef.current)
       instance.isAttached = true
 
-      // Register WebContents for backend communication (critical for terminal recovery)
-      if (window.electronAPI?.terminal?.registerWebContents) {
-        window.electronAPI.terminal.registerWebContents(terminalId)
-          .then(() => {
-            terminalLogger.debug('WebContents registered successfully', {terminalId})
+      // Restore serialized content if provided - do this immediately after attachment
+      if (initialContent && instance.serializeAddon) {
+        try {
+          terminalLogger.info('Restoring terminal state from serialized content', {
+            terminalId,
+            contentLength: initialContent.length
           })
-          .catch((error) => {
-            terminalLogger.error('Failed to register WebContents', {terminalId, error})
-          })
-      } else {
-        terminalLogger.warn('registerWebContents API not available', {terminalId})
+          
+          // Clear terminal before restoring content for a clean state
+          instance.xterm.clear()
+          
+          // Write the restored content immediately
+          instance.xterm.write(initialContent)
+          
+          // Clear the restored content from window storage after use
+          const terminalStates = (window as any)._odysseyTerminalStatesForRestore || {}
+          if (terminalStates[terminalId]) {
+            delete terminalStates[terminalId]
+            terminalLogger.debug('Cleared used terminal state from storage', {terminalId})
+          }
+          
+          terminalLogger.info('✅ Terminal content restoration completed', {terminalId})
+        } catch (error) {
+          terminalLogger.error('Failed to restore terminal content', {terminalId, error})
+        }
       }
 
-      // Fit terminal to container once after attachment
-      setTimeout(() => {
-        try {
-          if (instance.fitAddon && instance.xterm && terminalRef.current) {
-            instance.fitAddon.fit()
-            const {cols, rows} = instance.xterm
-            terminalLogger.debug('Initial fit for terminal', {terminalId, cols, rows})
-            resizeTerminal(terminalId, cols, rows)
-          }
-        } catch (error) {
-          terminalLogger.error('Error during initial fit', {terminalId, error})
+      // Event subscriptions are managed by terminalSlice - no need to handle here
+      // Terminal component focuses only on XTerm rendering and user interactions
+
+      // Fit terminal to container immediately after attachment
+      try {
+        if (instance.fitAddon && instance.xterm && terminalRef.current) {
+          instance.fitAddon.fit()
+          const {cols, rows} = instance.xterm
+          terminalLogger.debug('Initial fit for terminal', {terminalId, cols, rows})
+          resizeTerminal(terminalId, cols, rows)
         }
-      }, 100)
+      } catch (error) {
+        terminalLogger.error('Error during initial fit', {terminalId, error})
+      }
     }
 
     // ESLint disable: getOrCreateXTermInstance and resizeTerminal are stable from memoized hooks
-  }, [terminalId])
+  }, [terminalId, initialContent])
 
   // Handle theme changes
   useEffect(() => {
@@ -303,64 +351,6 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = ''}) 
     }
   }, [terminalId])
 
-  // Handle command history restoration
-  useEffect(() => {
-    const terminal = getTerminal(terminalId)
-    const instance = getTerminalInstance(terminalId)
-    
-    if (terminal?.commandHistory && instance?.xterm && terminal.commandHistory.length > 0) {
-      const xterm = instance.xterm
-      const commandHistory = terminal.commandHistory
-      
-      terminalLogger.info(`Rendering command history for terminal ${terminalId}`, { 
-        commandCount: commandHistory.length 
-      })
-      
-      // Render clear separator
-      xterm.writeln('')
-      xterm.writeln('\x1b[1m\x1b[34m--- 会话已恢复 (Session Restored) ---\x1b[0m')
-      xterm.writeln('')
-      
-      // Render structured history
-      commandHistory.forEach((entry: CommandHistoryEntry) => {
-        // Format the prompt with exit code color
-        const promptColor = entry.exitCode === 0 ? '\x1b[32m' : '\x1b[31m'
-        const timestamp = new Date(entry.timestamp).toLocaleTimeString()
-        const cwdShort = entry.cwd.split('/').pop() || '/'
-        
-        // Write prompt line
-        xterm.writeln(`${promptColor}➜\x1b[0m \x1b[36m${cwdShort}\x1b[0m \x1b[90m[${timestamp}]\x1b[0m`)
-        
-        // Write command
-        xterm.writeln(`  \x1b[1m${entry.command}\x1b[0m`)
-        
-        // Write output if present
-        if (entry.output && entry.output.trim()) {
-          const outputLines = entry.output.split('\n')
-          outputLines.forEach(line => {
-            if (line.trim()) {
-              xterm.writeln(`  ${line}`)
-            }
-          })
-        }
-        
-        // Show exit code if non-zero
-        if (entry.exitCode !== 0) {
-          xterm.writeln(`  \x1b[31m(退出码: ${entry.exitCode})\x1b[0m`)
-        }
-        
-        xterm.writeln('') // Empty line between commands
-      })
-      
-      xterm.writeln('\x1b[1m\x1b[34m--- 历史会话结束 (End of Restored Session) ---\x1b[0m')
-      xterm.writeln('')
-      
-      // Clear history from store to prevent re-rendering on tab switch
-      clearCommandHistory(terminalId)
-      
-      terminalLogger.debug(`Command history rendered and cleared for terminal ${terminalId}`)
-    }
-  }, [terminalId, getTerminal(terminalId)?.commandHistory, getTerminalInstance, clearCommandHistory])
 
   return (
     <div className={`terminal-container relative ${className}`}>

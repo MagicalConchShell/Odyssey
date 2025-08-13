@@ -3,8 +3,7 @@ import { Terminal, CreateTerminalOptions } from '@/types/terminal'
 import { storeLogger } from '@/utils/logger'
 import {
   getTerminalDataChannel,
-  getTerminalExitChannel,
-  getTerminalHistoryReplayChannel
+  getTerminalExitChannel
 } from '../../electron/ipc-event-channels'
 import { ProjectSlice } from './projectSlice'
 import { UISlice } from './uiSlice'
@@ -31,6 +30,11 @@ export interface TerminalSlice {
   setTerminalInstance: (terminalId: string, instance: any) => void
   getTerminalInstance: (terminalId: string) => any | undefined
   removeTerminalInstance: (terminalId: string) => void
+  
+  // Serialization methods for workspace saving
+  terminalSerializeMethods: Map<string, () => string>
+  setTerminalSerializeMethod: (terminalId: string, method: () => string) => void
+  getTerminalSerializeMethod: (terminalId: string) => (() => string) | undefined
 
   // Event management
   subscribeToTerminalEvents: (terminalId: string) => void
@@ -41,12 +45,10 @@ export interface TerminalSlice {
   clearAll: () => void
   getTerminal: (id: string) => Terminal | undefined
   
-  // Command history management
-  clearCommandHistory: (terminalId: string) => void
 
   // Session persistence
   saveTerminalState: (projectId: string) => Promise<void>
-  setWorkspaceState: (state: { terminals: any[]; activeTerminalId: string | null }) => void
+  setWorkspaceState: (state: { terminals: any[]; activeTerminalId: string | null; terminalStates?: Record<string, string> }) => void
 }
 
 export const createTerminalSlice: StateCreator<
@@ -60,6 +62,7 @@ export const createTerminalSlice: StateCreator<
   activeTerminalId: null,
   terminalInstances: new Map<string, any>(),
   eventListeners: new Map<string, Array<() => void>>(),
+  terminalSerializeMethods: new Map<string, () => string>(),
 
   // Core terminal lifecycle
   createTerminal: async (options) => {
@@ -308,54 +311,78 @@ export const createTerminalSlice: StateCreator<
 
     set((state) => {
       const newInstancesMap = new Map(state.terminalInstances)
+      const newSerializeMethodsMap = new Map(state.terminalSerializeMethods)
       newInstancesMap.delete(id)
-      return { terminalInstances: newInstancesMap }
+      newSerializeMethodsMap.delete(id)
+      return { 
+        terminalInstances: newInstancesMap,
+        terminalSerializeMethods: newSerializeMethodsMap
+      }
     })
+  },
+
+  // Serialization methods management
+  setTerminalSerializeMethod: (terminalId, method) => {
+    set((state) => ({
+      terminalSerializeMethods: new Map(state.terminalSerializeMethods).set(terminalId, method)
+    }))
+  },
+
+  getTerminalSerializeMethod: (terminalId) => {
+    return get().terminalSerializeMethods.get(terminalId)
   },
 
   // Event management
   subscribeToTerminalEvents: (terminalId) => {
-    storeLogger.debug('[AppStore] Subscribing to terminal events', { terminalId })
+    storeLogger.debug('[AppStore] 🎧 Starting terminal event subscription', { 
+      terminalId
+    })
 
-    // Clean up any existing listeners ATOMICALLY
+    // Force cleanup of any existing listeners for this terminal
+    // This prevents duplicate handleData instances
     const existingListeners = get().eventListeners.get(terminalId)
+    const dataChannel = getTerminalDataChannel(terminalId)
+    const exitChannel = getTerminalExitChannel(terminalId)
+    
+    // Remove all existing listeners from channels
+    if (window.electronAPI?.removeAllListeners) {
+      try {
+        window.electronAPI.removeAllListeners(dataChannel)
+        window.electronAPI.removeAllListeners(exitChannel)
+      } catch (error) {
+        storeLogger.warn(`[AppStore] removeAllListeners failed for ${terminalId}:`, error)
+      }
+    }
+    
+    // Clean up stored listeners
     if (existingListeners) {
-      storeLogger.debug(`[AppStore] Cleaning up ${existingListeners.length} existing listeners for ${terminalId}`)
       existingListeners.forEach(cleanup => {
         try {
           cleanup()
         } catch (error) {
-          storeLogger.error(`[AppStore] Error cleaning up listener for ${terminalId}:`, { error })
+          storeLogger.error(`[AppStore] Error cleaning up stored listener for ${terminalId}:`, error)
         }
-      })
-
-      set((state) => {
-        const newEventListeners = new Map(state.eventListeners)
-        newEventListeners.delete(terminalId)
-        return { eventListeners: newEventListeners }
       })
     }
 
-    // Create event channels
-    const dataChannel = getTerminalDataChannel(terminalId)
-    const exitChannel = getTerminalExitChannel(terminalId)
-    const historyReplayChannel = getTerminalHistoryReplayChannel(terminalId)
+    // Remove from state
+    set((state) => {
+      const newEventListeners = new Map(state.eventListeners)
+      newEventListeners.delete(terminalId)
+      return { eventListeners: newEventListeners }
+    })
+
+    // Channels already defined above for cleanup
 
     storeLogger.verbose('[AppStore] Event channels configured', {
       terminalId,
       dataChannel,
-      exitChannel,
-      historyReplayChannel
+      exitChannel
     })
 
-    // Create event handlers with error handling
+    // Create event handlers
     const handleData = (_event: any, data: string) => {
       try {
-        storeLogger.verbose('[AppStore] Received data for terminal', {
-          terminalId,
-          dataLength: data.length
-        })
-
         const instance = get().getTerminalInstance(terminalId)
         if (instance?.xterm) {
           instance.xterm.write(data)
@@ -367,25 +394,6 @@ export const createTerminalSlice: StateCreator<
       }
     }
 
-    const handleHistoryReplay = (_event: any, commandHistory: any[]) => {
-      try {
-        storeLogger.info('[AppStore] Received command history for terminal', {
-          terminalId,
-          commandCount: commandHistory.length
-        })
-
-        // Store command history in the terminal state for rendering
-        set((state) => ({
-          terminals: state.terminals.map(t =>
-            t.id === terminalId ? { ...t, commandHistory } : t
-          )
-        }))
-
-        storeLogger.debug('[AppStore] Command history stored in state', { terminalId })
-      } catch (error) {
-        storeLogger.error('[AppStore] Error handling history replay', { terminalId, error })
-      }
-    }
 
     const handleExit = (_event: any, exitCode: number) => {
       try {
@@ -410,27 +418,32 @@ export const createTerminalSlice: StateCreator<
     }
 
     try {
-      storeLogger.debug('[AppStore] Adding event listeners for terminal', {
+      storeLogger.debug('[AppStore] 📡 Adding event listeners for terminal', {
         terminalId,
         dataChannel,
-        exitChannel,
-        historyReplayChannel
+        exitChannel
       })
 
+      // Register event listeners
       window.electronAPI.on(dataChannel, handleData)
       window.electronAPI.on(exitChannel, handleExit)
-      window.electronAPI.on(historyReplayChannel, handleHistoryReplay)
 
-      storeLogger.debug('[AppStore] Event listeners setup successfully', { terminalId })
+      storeLogger.info('[AppStore] ✅ Event listeners registered successfully', { 
+        terminalId, 
+        dataChannel,
+        exitChannel 
+      })
 
-      // Store cleanup functions ATOMICALLY
+      // Store cleanup functions
       const cleanupFunctions = [
         () => {
-          storeLogger.debug(`[AppStore] Cleaning up IPC listeners for ${terminalId}`)
+          storeLogger.debug(`[AppStore] 🧹 Removing IPC listeners for ${terminalId}`)
+          
           if (window.electronAPI.removeListener) {
             window.electronAPI.removeListener(dataChannel, handleData)
             window.electronAPI.removeListener(exitChannel, handleExit)
-            window.electronAPI.removeListener(historyReplayChannel, handleHistoryReplay)
+          } else {
+            storeLogger.warn(`[AppStore] ⚠️ removeListener API not available for ${terminalId}`)
           }
         }
       ]
@@ -500,6 +513,7 @@ export const createTerminalSlice: StateCreator<
       activeTerminalId: null,
       terminalInstances: new Map(),
       eventListeners: new Map(),
+      terminalSerializeMethods: new Map(),
       terminalMode: 'welcome'
     })
   },
@@ -508,15 +522,6 @@ export const createTerminalSlice: StateCreator<
     return get().terminals.find(t => t.id === id)
   },
 
-  // Command history management
-  clearCommandHistory: (terminalId) => {
-    set((state) => ({
-      terminals: state.terminals.map(t =>
-        t.id === terminalId ? { ...t, commandHistory: undefined } : t
-      )
-    }))
-    storeLogger.debug('[AppStore] Command history cleared from terminal state', { terminalId })
-  },
 
 
   // Session persistence
@@ -528,19 +533,67 @@ export const createTerminalSlice: StateCreator<
 
     try {
       const state = get()
-      storeLogger.info('[AppStore] 💾 Saving terminal state via backend service', { 
+      storeLogger.info('[AppStore] 💾 Saving terminal state with serialization', { 
         projectId, 
         terminalCount: state.terminals.length 
       })
 
-      // Note: Backend TerminalManagementService automatically handles all terminal state extraction
-      // No need to manually construct WorkspaceState object - backend does this internally
-      const result = await window.electronAPI.workspace.save(projectId)
+      // Collect terminal serialization states
+      storeLogger.debug('[AppStore] 🔍 Terminal serialization debug info', {
+        totalTerminals: state.terminals.length,
+        terminalIds: state.terminals.map(t => t.id),
+        registeredMethods: Array.from(state.terminalSerializeMethods.keys()),
+        methodsCount: state.terminalSerializeMethods.size
+      })
+
+      const terminalStates: Record<string, string> = {}
+      for (const terminal of state.terminals) {
+        const serializeMethod = state.terminalSerializeMethods.get(terminal.id)
+        storeLogger.debug('[AppStore] 🔍 Checking terminal for serialization', {
+          terminalId: terminal.id,
+          hasSerializeMethod: !!serializeMethod
+        })
+        
+        if (serializeMethod) {
+          try {
+            const serializedState = serializeMethod()
+            storeLogger.debug('[AppStore] 📊 Serialization attempt result', {
+              terminalId: terminal.id,
+              serializedLength: serializedState ? serializedState.length : 0,
+              hasData: !!serializedState
+            })
+            
+            if (serializedState) {
+              terminalStates[terminal.id] = serializedState
+              storeLogger.debug('[AppStore] ✅ Collected serialized state', { 
+                terminalId: terminal.id,
+                stateLength: serializedState.length
+              })
+            } else {
+              storeLogger.warn('[AppStore] ⚠️ Serialization returned empty data', { terminalId: terminal.id })
+            }
+          } catch (error) {
+            storeLogger.error('[AppStore] ❌ Failed to serialize terminal', { 
+              terminalId: terminal.id, 
+              error 
+            })
+          }
+        } else {
+          storeLogger.warn('[AppStore] ⚠️ No serialize method found for terminal', { terminalId: terminal.id })
+        }
+      }
+
+      storeLogger.info('[AppStore] Sending terminal states to backend', { 
+        terminalStateCount: Object.keys(terminalStates).length 
+      })
+
+      // Send terminalStates directly to backend
+      const result = await window.electronAPI.workspace.save(projectId, terminalStates)
 
       if (result.success) {
-        storeLogger.info('[AppStore] ✅ Terminal state saved successfully', { projectId })
+        storeLogger.info('[AppStore] ✅ Terminal state saved successfully with serialization', { projectId })
       } else {
-        storeLogger.error('[AppStore] Failed to save terminal state via backend', { projectId, error: result.error })
+        storeLogger.error('[AppStore] Failed to save terminal state with serialization', { projectId, error: result.error })
         throw new Error(result.error || 'Unknown error saving workspace state')
       }
     } catch (error) {
@@ -552,15 +605,100 @@ export const createTerminalSlice: StateCreator<
   // Passive state setting - receives complete workspace state from backend
   // Terminal restoration is handled by the project switching flow (setProject -> project:switch)
   setWorkspaceState: (workspaceData) => {
-    const { terminals: serializedTerminals, activeTerminalId } = workspaceData
+    const { terminals: serializedTerminals, activeTerminalId, terminalStates } = workspaceData
     
     storeLogger.info('[AppStore] Setting workspace state from backend', { 
-      terminalCount: serializedTerminals.length,
-      activeTerminalId 
+      terminalCount: serializedTerminals ? serializedTerminals.length : 0,
+      activeTerminalId,
+      hasTerminalStates: !!terminalStates,
+      terminalStatesCount: terminalStates ? Object.keys(terminalStates).length : 0
     })
 
+    // FORCE cleanup all existing terminal state and listeners
+    // This is critical to prevent multiple handleData instances
+    const currentState = get()
+    
+    
+    storeLogger.debug('[AppStore] Cleaning up existing frontend terminal state', {
+      existingTerminals: currentState.terminals.length,
+      existingInstances: currentState.terminalInstances.size,
+      existingEventListeners: currentState.eventListeners.size
+    })
+
+    // Force unsubscribe from ALL existing terminal events
+    currentState.terminals.forEach(terminal => {
+      
+      try {
+        // Force cleanup using direct channel manipulation if possible
+        const dataChannel = getTerminalDataChannel(terminal.id)
+        const exitChannel = getTerminalExitChannel(terminal.id)
+        
+        if (window.electronAPI?.removeAllListeners) {
+          try {
+            window.electronAPI.removeAllListeners(dataChannel)
+            window.electronAPI.removeAllListeners(exitChannel)
+          } catch (error) {
+          }
+        }
+        
+        currentState.unsubscribeFromTerminalEvents(terminal.id)
+      } catch (error) {
+        storeLogger.error('[AppStore] Error unsubscribing from terminal events during cleanup', { 
+          terminalId: terminal.id, 
+          error 
+        })
+      }
+    })
+
+    // Dispose all existing XTerm instances without killing backend PTY processes
+    currentState.terminalInstances.forEach((instance, terminalId) => {
+      try {
+        storeLogger.debug('[AppStore] 🧹 Disposing XTerm instance during cleanup', { 
+          terminalId,
+          hasDisposables: !!instance?.disposables,
+          disposablesCount: instance?.disposables?.length || 0,
+          hasXterm: !!instance?.xterm
+        })
+        
+        if (instance?.disposables) {
+          instance.disposables.forEach((disposable: any) => {
+            try {
+              disposable.dispose()
+            } catch (error) {
+              storeLogger.error('[AppStore] Error disposing terminal event listener during cleanup', {
+                terminalId,
+                error
+              })
+            }
+          })
+          // Clear disposables array to prevent reuse
+          instance.disposables = []
+        }
+        
+        if (instance?.xterm) {
+          // Mark as not attached before disposal
+          instance.isAttached = false
+          instance.xterm.dispose()
+          storeLogger.debug('[AppStore] ✅ Disposed XTerm instance during cleanup', { terminalId })
+        }
+      } catch (error) {
+        storeLogger.error('[AppStore] Error disposing XTerm instance during cleanup', { terminalId, error })
+      }
+    })
+
+    // Clear frontend state
+    set({
+      terminals: [],
+      activeTerminalId: null,
+      terminalInstances: new Map(),
+      eventListeners: new Map(),
+      terminalSerializeMethods: new Map()
+    })
+
+    storeLogger.info('[AppStore] ✅ Frontend terminal state cleanup completed')
+
     // Convert serialized terminals to frontend Terminal objects
-    const terminals: Terminal[] = serializedTerminals.map(serialized => ({
+    const terminals: Terminal[] = serializedTerminals ? serializedTerminals.map(serialized => ({
       id: serialized.id,
       title: serialized.title || 'Terminal',
       type: 'terminal',
@@ -568,11 +706,11 @@ export const createTerminalSlice: StateCreator<
       shell: serialized.shell,
       isActive: false,
       createdAt: serialized.createdAt || Date.now()
-    }))
+    })) : []
 
-    // Note: Event subscriptions will be handled by individual Terminal components
-    // This prevents double subscription and ensures proper cleanup
-    storeLogger.debug('[AppStore] Terminal event subscriptions will be handled by Terminal components', { 
+    // Re-establish event subscriptions for restored terminals
+    // This is critical for terminal interaction after project switching
+    storeLogger.debug('[AppStore] Setting up event subscriptions for restored terminals', { 
       terminalCount: terminals.length 
     })
 
@@ -587,6 +725,18 @@ export const createTerminalSlice: StateCreator<
       })
     }
 
+    // Store terminal states for restoration
+    if (terminalStates && Object.keys(terminalStates).length > 0) {
+      storeLogger.info('[AppStore] Storing terminal serialization states for restoration', { 
+        stateCount: Object.keys(terminalStates).length 
+      })
+      // Temporarily store in window for access by Terminal components
+      ;(window as any)._odysseyTerminalStatesForRestore = terminalStates
+    } else {
+      // Clear any existing states if none provided
+      ;(window as any)._odysseyTerminalStatesForRestore = undefined
+    }
+
     // Apply the complete state atomically
     set({
       terminals,
@@ -594,9 +744,46 @@ export const createTerminalSlice: StateCreator<
       terminalMode: terminals.length > 0 ? 'active' : 'welcome'
     })
 
+    // Re-establish event subscriptions for all restored terminals synchronously
+    // Backend has already created terminals, so we can subscribe immediately
+    
+    storeLogger.info('[AppStore] 🔄 Starting synchronous event subscription restoration', { 
+      totalTerminals: terminals.length
+    })
+    
+    const subscribeToTerminalEvents = get().subscribeToTerminalEvents
+    let successfulSubscriptions = 0
+    
+    terminals.forEach(terminal => {
+      try {
+        storeLogger.debug('[AppStore] Subscribing to events for restored terminal', { 
+          terminalId: terminal.id 
+        })
+        subscribeToTerminalEvents(terminal.id)
+        successfulSubscriptions++
+        
+        
+        storeLogger.debug('[AppStore] ✅ Event subscription established for terminal', { 
+          terminalId: terminal.id 
+        })
+      } catch (error) {
+        storeLogger.error('[AppStore] ❌ Failed to restore event subscription for terminal', { 
+          terminalId: terminal.id, 
+          error 
+        })
+        // Don't retry - if it fails, something is fundamentally wrong
+        throw new Error(`Failed to establish event subscription for terminal ${terminal.id}: ${error}`)
+      }
+    })
+    
+    storeLogger.info('[AppStore] 🎉 Event subscriptions restoration completed', { 
+      totalTerminals: terminals.length,
+      successfulSubscriptions
+    })
+
     storeLogger.info('[AppStore] ✅ Workspace state applied successfully', { 
       terminalCount: terminals.length,
-      activeTerminalId ,
+      activeTerminalId: finalActiveTerminalId,
       terminalMode: terminals.length > 0 ? 'active' : 'welcome',
     })
   }
