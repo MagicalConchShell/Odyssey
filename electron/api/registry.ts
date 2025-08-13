@@ -38,8 +38,6 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'terminal', method: 'write', handler: terminalHandlers.writeToTerminal },
   { channel: 'terminal', method: 'resize', handler: terminalHandlers.resizeTerminal },
   { channel: 'terminal', method: 'close', handler: terminalHandlers.closeTerminal },
-  { channel: 'terminal', method: 'getState', handler: terminalHandlers.getTerminalState },
-  { channel: 'terminal', method: 'cwdChanged', handler: terminalHandlers.handleCwdChanged },
   { channel: 'terminal', method: 'registerWebContents', handler: terminalHandlers.registerWebContents },
 
   // Claude CLI handlers
@@ -86,5 +84,4 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'workspace', method: 'load', handler: workspaceHandlers.load },
   { channel: 'workspace', method: 'save', handler: workspaceHandlers.save },
   { channel: 'workspace', method: 'listProjects', handler: workspaceHandlers.listProjects },
-  { channel: 'workspace', method: 'cleanupOrphanedStates', handler: workspaceHandlers.cleanupOrphanedStates },
 ];

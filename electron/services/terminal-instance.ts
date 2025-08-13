@@ -9,14 +9,6 @@
 import { EventEmitter } from 'events'
 import { ptyService } from './pty-service'
 
-// Command history entry for structured terminal history
-export interface CommandHistoryEntry {
-  command: string
-  output: string
-  exitCode: number
-  timestamp: number
-  cwd: string
-}
 
 export interface TerminalInstanceOptions {
   id: string
@@ -27,19 +19,7 @@ export interface TerminalInstanceOptions {
   title?: string
 }
 
-export interface SerializedTerminalInstance {
-  id: string
-  title: string
-  cwd: string
-  shell: string
-  cols: number
-  rows: number
-  isAlive: boolean
-  commandHistory: CommandHistoryEntry[] // Replace buffer with structured history
-  createdAt: number
-  currentCwd?: string // Dynamic CWD that may differ from initial cwd
-  runningProcess?: string // Currently running process name
-}
+// SerializedTerminalInstance interface removed - serialization is handled by frontend xterm-addon-serialize
 
 /**
  * TerminalInstance - Single source of truth for terminal state
@@ -51,10 +31,6 @@ export class TerminalInstance extends EventEmitter {
   public readonly shell: string
   public readonly createdAt: number
 
-  private commandHistory: CommandHistoryEntry[] = []
-  private currentCommandOutput: string = ''
-  private isCapturingCommand: boolean = false
-  private tempCommand: Partial<CommandHistoryEntry> | null = null
   private cols: number
   private rows: number
   private isAlive: boolean = true
@@ -124,134 +100,8 @@ export class TerminalInstance extends EventEmitter {
   private onData(data: string): void {
     // Always forward all raw data to the frontend for rendering
     this.emit('data', { id: this.id, data })
-
-    // Process data internally for command history tracking
-    this.processOscSequences(data)
   }
 
-  /**
-   * Process OSC sequences for command tracking and CWD updates
-   */
-  private processOscSequences(data: string): void {
-    // Check if data contains any OSC 633 sequences
-    if (data.includes('\x1b]633;')) {
-      console.log(`[TerminalInstance] 📡 OSC 633 sequence detected in terminal ${this.id}`)
-    }
-    
-    // OSC 633;A -> Command Start
-    // OSC 633;B -> Command End  
-    // OSC 633;P -> CWD/Process info
-    // Pattern matches: \x1b]633;A;....\x07 or \x1b]633;B;....\x07 or \x1b]633;P;....\x07
-    const oscRegex = /\x1b]633;([ABP]);([^]*?)\x07/g
-    let match
-    let lastIndex = 0
-
-    while ((match = oscRegex.exec(data)) !== null) {
-      // Append text between OSC sequences to the current command's output
-      const textBeforeMatch = data.substring(lastIndex, match.index)
-      if (this.isCapturingCommand) {
-        this.currentCommandOutput += textBeforeMatch
-      }
-      lastIndex = oscRegex.lastIndex
-
-      const type = match[1]
-      const payload = match[2]
-      
-      console.log(`[TerminalInstance] 🔍 Processing OSC 633;${type} sequence:`, payload.substring(0, 100) + (payload.length > 100 ? '...' : ''))
-      
-      if (type === 'A' || type === 'B') {
-        this.handleCommandOsc(type, payload)
-      } else if (type === 'P') {
-        this.handleInfoOsc(payload)
-      }
-    }
-
-    // Append any remaining text after the last OSC sequence
-    const remainingText = data.substring(lastIndex)
-    if (this.isCapturingCommand) {
-      this.currentCommandOutput += remainingText
-    }
-  }
-
-  /**
-   * Handle info OSC sequences (OSC 633;P) for CWD and process updates
-   */
-  private handleInfoOsc(payload: string): void {
-    try {
-      // Parse parameters from payload (format: ;Cwd=file://hostname/path)
-      const params = new URLSearchParams(payload.replace(/;/g, '&'))
-      
-      const cwdUrl = params.get('Cwd')
-      if (cwdUrl) {
-        // Parse the file:// URL to extract the path
-        const url = new URL(cwdUrl)
-        let newCwd = decodeURIComponent(url.pathname)
-        
-        // Handle Windows paths: remove leading slash from /C:/path
-        if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(newCwd)) {
-          newCwd = newCwd.substring(1)
-        }
-        
-        // Update current CWD using existing method
-        this.updateCurrentCwd(newCwd)
-      }
-    } catch (error) {
-      console.error(`[TerminalInstance] Error parsing info OSC sequence:`, error)
-    }
-  }
-
-  /**
-   * Handle command-related OSC sequences
-   */
-  private handleCommandOsc(type: string, payload: string): void {
-    try {
-      // Parse URL-encoded parameters (C=command&T=timestamp&Cwd=cwd)
-      const params = new URLSearchParams(payload.replace(/;/g, '&'))
-      
-      if (type === 'A') { // Command Start
-        this.isCapturingCommand = true
-        this.currentCommandOutput = '' // Reset output capture
-        
-        this.tempCommand = {
-          command: decodeURIComponent(params.get('C') || ''),
-          timestamp: parseInt(params.get('T') || '0', 10) * 1000, // Convert to ms
-          cwd: decodeURIComponent(params.get('Cwd') || this.currentCwd),
-        }
-        
-        console.log(`[TerminalInstance] Command started: ${this.tempCommand.command}`)
-        
-      } else if (type === 'B') { // Command End
-        if (this.tempCommand) {
-          const exitCode = parseInt(params.get('E') || '0', 10)
-          
-          const historyEntry: CommandHistoryEntry = {
-            command: this.tempCommand.command || '',
-            output: this.currentCommandOutput,
-            exitCode,
-            timestamp: this.tempCommand.timestamp || Date.now(),
-            cwd: this.tempCommand.cwd || this.currentCwd,
-          }
-          
-          this.commandHistory.push(historyEntry)
-          
-          // Limit history size (configurable, default 500)
-          const maxHistorySize = 500
-          if (this.commandHistory.length > maxHistorySize) {
-            this.commandHistory.shift()
-          }
-          
-          console.log(`[TerminalInstance] ✅ Command completed: ${historyEntry.command} (exit: ${exitCode})`)
-          console.log(`[TerminalInstance] 📊 Total command history entries: ${this.commandHistory.length}`)
-        }
-        
-        this.isCapturingCommand = false
-        this.tempCommand = null
-        this.currentCommandOutput = ''
-      }
-    } catch (error) {
-      console.error(`[TerminalInstance] Error parsing OSC sequence:`, error)
-    }
-  }
 
 
   /**
@@ -355,76 +205,8 @@ export class TerminalInstance extends EventEmitter {
     return this.runningProcess
   }
 
-  /**
-   * Serialize terminal state for persistence
-   * Excludes the ptyProcess as it cannot be serialized
-   */
-  toJSON(): SerializedTerminalInstance {
-    console.log(`[TerminalInstance] 📋 Serializing terminal ${this.id} with ${this.commandHistory.length} command history entries`)
-    
-    return {
-      id: this.id,
-      title: this.title,
-      cwd: this.cwd,
-      shell: this.shell,
-      cols: this.cols,
-      rows: this.rows,
-      isAlive: this.isAlive,
-      commandHistory: this.commandHistory,
-      createdAt: this.createdAt,
-      currentCwd: this.currentCwd,
-      runningProcess: this.runningProcess || undefined
-    }
-  }
+  // toJSON method removed - terminal serialization is handled by frontend xterm-addon-serialize
 
-  /**
-   * Create a TerminalInstance from serialized data
-   * This creates a new PTY process but restores the historical state
-   */
-  static fromSerialized(data: SerializedTerminalInstance): TerminalInstance {
-    // Use currentCwd if available, fallback to original cwd
-    const cwdToUse = data.currentCwd || data.cwd
-    
-    const instance = new TerminalInstance({
-      id: data.id,
-      shell: data.shell,
-      cwd: cwdToUse, // Use the most recent CWD for restoration
-      cols: data.cols,
-      rows: data.rows,
-      title: data.title
-    })
+  // fromSerialized method removed - terminal restoration is handled by frontend xterm-addon-serialize
 
-    // Restore dynamic state
-    if (data.currentCwd) {
-      instance.currentCwd = data.currentCwd
-    }
-    if (data.runningProcess) {
-      instance.runningProcess = data.runningProcess
-    }
-
-    // Restore command history
-    if (data.commandHistory && data.commandHistory.length > 0) {
-      instance.commandHistory = [...data.commandHistory]
-      console.log(`[TerminalInstance] Restored command history with ${data.commandHistory.length} entries for ${instance.id}`)
-    }
-
-    console.log(`[TerminalInstance] Restored terminal ${instance.id} with CWD: ${cwdToUse}${data.runningProcess ? `, process: ${data.runningProcess}` : ''}`)
-
-    return instance
-  }
-
-  /**
-   * Get command history for frontend restoration
-   */
-  getCommandHistory(): CommandHistoryEntry[] {
-    return [...this.commandHistory]
-  }
-
-  /**
-   * Clear command history (called after successful restoration)
-   */
-  clearCommandHistory(): void {
-    this.commandHistory = []
-    console.log(`[TerminalInstance] Command history cleared for ${this.id}`)
-  }
 }

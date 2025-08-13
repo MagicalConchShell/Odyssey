@@ -25,6 +25,8 @@ ipcRenderer.invoke('get-api-structure').then(apiStructure => {
     ipcRenderer.on(channel, listener);
   electronAPI.removeListener = (channel: string, listener: (...args: any[]) => void) =>
     ipcRenderer.removeListener(channel, listener);
+  electronAPI.removeAllListeners = (channel: string) =>
+    ipcRenderer.removeAllListeners(channel);
 
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
   

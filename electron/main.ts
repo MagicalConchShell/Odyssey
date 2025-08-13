@@ -134,22 +134,9 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   console.log('🚪 Application is shutting down, cleaning up resources...');
 
-  // Save terminal state before shutdown
-  try {
-    const workspaceService = new WorkspaceStateService();
-    const currentProjectPath = process.cwd(); // Use current working directory as default
-    
-    // Only save if there are active terminals
-    if (terminalManagementService.getCount() > 0) {
-      console.log(`💾 Saving terminal state for ${terminalManagementService.getCount()} terminals...`);
-      await workspaceService.saveFromTerminalService(currentProjectPath, terminalManagementService);
-      console.log('✅ Terminal state saved successfully');
-    } else {
-      console.log('📭 No terminals to save');
-    }
-  } catch (error) {
-    console.error('❌ Failed to save terminal state during shutdown:', error);
-  }
+  // Terminal state saving is now handled by frontend through workspace handlers
+  // No automatic saving during shutdown needed since frontend manages serialization
+  console.log('🔄 Application shutdown - terminal state managed by frontend');
 
   // Clean up database connection
   dbManager.close();

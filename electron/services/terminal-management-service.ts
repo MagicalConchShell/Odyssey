@@ -6,10 +6,12 @@
  */
 
 import { EventEmitter } from 'events'
-import { TerminalInstance, SerializedTerminalInstance } from './terminal-instance'
+import { WebContents } from 'electron'
+import { TerminalInstance } from './terminal-instance'
 
 export class TerminalManagementService extends EventEmitter {
   private terminalMap: Map<string, TerminalInstance> = new Map()
+  private webContentsMap: Map<string, WebContents> = new Map()
 
   constructor() {
     super()
@@ -99,6 +101,7 @@ export class TerminalManagementService extends EventEmitter {
     try {
       terminalInstance.kill()
       this.terminalMap.delete(id)
+      this.webContentsMap.delete(id)
       console.log(`[TerminalManagementService] Killed terminal ${id}`)
       return true
     } catch (error) {
@@ -122,13 +125,6 @@ export class TerminalManagementService extends EventEmitter {
   }
 
   /**
-   * Get all terminal IDs
-   */
-  getAllIds(): string[] {
-    return Array.from(this.terminalMap.keys())
-  }
-
-  /**
    * Get terminal count
    */
   getCount(): number {
@@ -136,87 +132,33 @@ export class TerminalManagementService extends EventEmitter {
   }
 
   /**
-   * Check if terminal exists
+   * Register WebContents for a terminal
    */
-  hasTerminal(id: string): boolean {
-    return this.terminalMap.has(id)
+  registerWebContents(terminalId: string, webContents: WebContents): void {
+    this.webContentsMap.set(terminalId, webContents)
+    console.log(`[TerminalManagementService] WebContents registered for terminal ${terminalId}`)
   }
 
   /**
-   * Serialize all terminals for persistence
+   * Unregister WebContents for a terminal
    */
-  serializeAll(): SerializedTerminalInstance[] {
-    try {
-      const instances = this.getAllInstances()
-      return instances.map(instance => instance.toJSON()).filter(serialized => serialized != null)
-    } catch (error) {
-      console.error('[TerminalManagementService] Error serializing terminals:', error)
-      return []
-    }
+  unregisterWebContents(terminalId: string): void {
+    this.webContentsMap.delete(terminalId)
+    console.log(`[TerminalManagementService] WebContents unregistered for terminal ${terminalId}`)
   }
 
   /**
-   * Restore terminals from serialized data
-   * This creates new PTY processes but restores historical state
+   * Get WebContents for a terminal
    */
-  restoreFromSerialized(serializedTerminals: SerializedTerminalInstance[]): void {
-    console.log(`[TerminalManagementService] Restoring ${serializedTerminals.length} terminals`)
-
-    for (const serializedTerminal of serializedTerminals) {
-      try {
-        // Skip if terminal already exists
-        if (this.terminalMap.has(serializedTerminal.id)) {
-          console.warn(`[TerminalManagementService] Terminal ${serializedTerminal.id} already exists, skipping restore`)
-          continue
-        }
-
-        // Create terminal instance from serialized data
-        const terminalInstance = TerminalInstance.fromSerialized(serializedTerminal)
-
-        // Store instance
-        this.terminalMap.set(serializedTerminal.id, terminalInstance)
-
-        // Forward events from terminal instance
-        terminalInstance.on('data', (data) => {
-          this.emit('data', data)
-        })
-
-        terminalInstance.on('exit', (data) => {
-          this.emit('exit', data)
-          // Clean up from map when terminal exits
-          this.terminalMap.delete(serializedTerminal.id)
-        })
-
-
-        // Forward dynamic tracking events
-        terminalInstance.on('cwd-changed', (data) => {
-          this.emit('cwd-changed', data)
-        })
-
-        terminalInstance.on('process-changed', (data) => {
-          this.emit('process-changed', data)
-        })
-
-        // Command history is automatically restored in fromSerialized
-        if (serializedTerminal.commandHistory && serializedTerminal.commandHistory.length > 0) {
-          console.log(`[TerminalManagementService] Terminal ${serializedTerminal.id} restored with ${serializedTerminal.commandHistory.length} command history entries`)
-        }
-
-        console.log(`[TerminalManagementService] Restored terminal ${serializedTerminal.id}`)
-      } catch (error) {
-        console.error(`[TerminalManagementService] Failed to restore terminal ${serializedTerminal.id}:`, error)
-      }
-    }
-
-    console.log(`[TerminalManagementService] Terminal restoration complete - ${this.getCount()} terminals active`)
+  getWebContents(terminalId: string): WebContents | undefined {
+    return this.webContentsMap.get(terminalId)
   }
 
-
   /**
-   * Cleanup all terminal instances
+   * Cleanup all terminal instances and WebContents
    */
   cleanup(): void {
-    console.log(`[TerminalManagementService] Cleaning up ${this.terminalMap.size} terminal instances`)
+    console.log(`[TerminalManagementService] Cleaning up ${this.terminalMap.size} terminal instances and ${this.webContentsMap.size} WebContents`)
     
     for (const [id, terminalInstance] of this.terminalMap) {
       try {
@@ -227,6 +169,7 @@ export class TerminalManagementService extends EventEmitter {
     }
     
     this.terminalMap.clear()
+    this.webContentsMap.clear()
     console.log('[TerminalManagementService] Cleanup complete')
   }
 }

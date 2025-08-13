@@ -30,20 +30,6 @@ export interface Project {
   updated_at: number
 }
 
-export interface TerminalSession {
-  id: string
-  project_path: string
-  working_directory: string
-  shell: string
-  environment_vars: string // JSON string of env vars
-  title?: string
-  is_active: boolean
-  created_at: number
-  last_used: number
-  pid?: number // Process ID when active
-}
-
-
 /**
  * Manages SQLite database operations for Odyssey.
  * Handles usage data tracking.

@@ -1,15 +1,7 @@
 /**
- * Workspace state type definitions for terminal persistence
+ * Workspace state type definitions
  */
 
-// Command history entry for structured terminal history
-export interface CommandHistoryEntry {
-  command: string;
-  output: string;
-  exitCode: number;
-  timestamp: number;
-  cwd: string;
-}
 
 /**
  * Terminal configuration for persistence
@@ -22,7 +14,6 @@ export interface PersistedTerminal {
   shell?: string;
   createdAt: number;
   isActive: boolean;
-  commandHistory?: CommandHistoryEntry[]; // Command history entries for structured terminal history
   currentCwd?: string; // Dynamic CWD that may differ from initial cwd
   runningProcess?: string; // Currently running process name
 }
@@ -33,62 +24,11 @@ export interface PersistedTerminal {
 export interface WorkspaceState {
   terminals: PersistedTerminal[];
   activeTerminalId: string | null;
+  terminalStates?: Record<string, string>; // Terminal ID -> serialized xterm state
   lastSaved: number;
   version: string; // For future migration support
 }
 
-/**
- * Workspace state service configuration
- */
-export interface WorkspaceStateConfig {
-  basePath?: string;           // Base storage directory (defaults to ~/.odyssey/workspaces)
-  autoSave?: boolean;          // Whether to auto-save state changes
-  maxHistorySize?: number;     // Maximum number of state history entries to keep
-}
-
-/**
- * Workspace state service interface
- */
-export interface WorkspaceStateService {
-  /**
-   * Save workspace state for a project
-   */
-  saveWorkspaceState(projectPath: string, state: WorkspaceState): Promise<void>;
-
-  /**
-   * Load workspace state for a project
-   */
-  loadWorkspaceState(projectPath: string): Promise<WorkspaceState | null>;
-
-  /**
-   * Clear workspace state for a project
-   */
-  clearWorkspaceState(projectPath: string): Promise<void>;
-
-  /**
-   * Check if workspace state exists for a project
-   */
-  hasWorkspaceState(projectPath: string): Promise<boolean>;
-
-  /**
-   * Get all projects that have workspace state
-   */
-  listWorkspaceProjects(): Promise<string[]>;
-
-  /**
-   * Delete workspace state for projects that no longer exist
-   */
-  cleanupOrphanedStates(): Promise<number>;
-}
-
-/**
- * Workspace state operation result
- */
-export interface WorkspaceStateResult<T = void> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
 
 /**
  * Project workspace metadata

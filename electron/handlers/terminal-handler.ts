@@ -5,19 +5,15 @@
  * All complex logic has been moved to TerminalManagementService - these handlers are just IPC bridges
  */
 
-import { WebContents, IpcMainInvokeEvent } from 'electron'
+import { IpcMainInvokeEvent } from 'electron'
 import type { TerminalManagementService } from '../services/terminal-management-service'
 import { 
   getTerminalDataChannel,
-  getTerminalExitChannel,
-  getTerminalHistoryReplayChannel
+  getTerminalExitChannel
 } from '../ipc-event-channels'
 
 // Service dependencies - injected during setup
 let terminalManagementService: TerminalManagementService;
-
-// Map to store WebContents for each terminal
-const terminalWebContentsMap = new Map<string, WebContents>()
 
 /**
  * Create a new terminal session
@@ -32,8 +28,8 @@ export async function createTerminal(event: IpcMainInvokeEvent, workingDirectory
     projectPath
   })
   
-  // Store WebContents for this terminal
-  terminalWebContentsMap.set(id, event.sender)
+  // Register WebContents with terminal management service
+  terminalManagementService.registerWebContents(id, event.sender)
   
   terminalManagementService.create(id, shell || '', workingDirectory, 80, 30)
   
@@ -45,19 +41,13 @@ export async function createTerminal(event: IpcMainInvokeEvent, workingDirectory
  * Write data to a terminal session
  */
 export async function writeToTerminal(_event: IpcMainInvokeEvent, terminalId: string, data: string): Promise<void> {
-  // console.log(`[TerminalHandler] 📝 Writing to terminal ${terminalId}:`, {
-  //   dataLength: data.length,
-  //   dataPreview: data.slice(0, 50)
-  // })
-  //
   const success = terminalManagementService.write(terminalId, data)
   
   if (!success) {
     console.error(`[TerminalHandler] ❌ Terminal ${terminalId} not found for write operation`)
     throw new Error(`Terminal ${terminalId} not found`)
   }
-  
-  // console.log(`[TerminalHandler] ✅ Successfully wrote to terminal ${terminalId}`)
+
 }
 
 /**
@@ -85,30 +75,9 @@ export async function resizeTerminal(_event: IpcMainInvokeEvent, terminalId: str
 export async function closeTerminal(_event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
   const success = terminalManagementService.kill(terminalId)
   
-  // Clean up WebContents mapping
-  terminalWebContentsMap.delete(terminalId)
-  
   if (!success) {
     throw new Error(`Terminal ${terminalId} not found`)
   }
-}
-
-/**
- * Handle CWD changes from OSC sequences
- */
-export async function handleCwdChanged(_event: IpcMainInvokeEvent, terminalId: string, newCwd: string): Promise<void> {
-  console.log(`[TerminalHandler] 📍 CWD changed for terminal ${terminalId}:`, { newCwd })
-  
-  const terminal = terminalManagementService.getTerminal(terminalId)
-  if (!terminal) {
-    console.warn(`[TerminalHandler] ⚠️ Terminal ${terminalId} not found for CWD update`)
-    return
-  }
-  
-  // Update the terminal's current CWD
-  terminal.updateCurrentCwd(newCwd)
-  
-  console.log(`[TerminalHandler] ✅ Successfully updated CWD for terminal ${terminalId}`)
 }
 
 
@@ -116,57 +85,9 @@ export async function handleCwdChanged(_event: IpcMainInvokeEvent, terminalId: s
  * Register WebContents for a terminal (used during restoration)
  */
 export async function registerWebContents(event: IpcMainInvokeEvent, terminalId: string): Promise<void> {
+  // Register WebContents with terminal management service
+  terminalManagementService.registerWebContents(terminalId, event.sender)
   console.log(`[TerminalHandler] 🔗 Registering WebContents for terminal ${terminalId}`)
-  
-  // Store WebContents for this terminal
-  terminalWebContentsMap.set(terminalId, event.sender)
-  
-  // Check if this terminal has command history to replay (for restoration)
-  const terminal = terminalManagementService.getTerminal(terminalId)
-  if (terminal) {
-    const commandHistory = terminal.getCommandHistory()
-    if (commandHistory && commandHistory.length > 0) {
-      console.log(`[TerminalHandler] 🎬 Triggering history replay for terminal ${terminalId} (${commandHistory.length} commands)`)
-      
-      // Send command history to frontend for structured rendering
-      setTimeout(() => {
-        try {
-          const webContents = terminalWebContentsMap.get(terminalId)
-          if (webContents && !webContents.isDestroyed()) {
-            const channel = getTerminalHistoryReplayChannel(terminalId)
-            webContents.send(channel, commandHistory)
-            console.log(`[TerminalHandler] ✅ History replay sent for terminal ${terminalId}`)
-          } else {
-            console.warn(`[TerminalHandler] ⚠️ Cannot send history replay - no valid webContents for terminal ${terminalId}`)
-          }
-        } catch (error) {
-          console.error(`[TerminalHandler] ❌ Failed to send history replay for terminal ${terminalId}:`, error)
-        }
-      }, 100) // Small delay to ensure WebContents is fully ready
-    } else {
-      console.log(`[TerminalHandler] 📭 No command history to replay for terminal ${terminalId}`)
-    }
-  }
-  
-  console.log(`[TerminalHandler] ✅ WebContents registered for terminal ${terminalId}`)
-}
-
-/**
- * Get terminal state
- */
-export async function getTerminalState(_event: IpcMainInvokeEvent, terminalId: string): Promise<any> {
-  const terminal = terminalManagementService.getTerminal(terminalId)
-  if (!terminal) {
-    throw new Error(`Terminal ${terminalId} not found`)
-  }
-  
-  return {
-    id: terminalId,
-    isActive: true,
-    workingDirectory: terminal.getCurrentCwd() || '/tmp',
-    shell: 'bash',
-    commandHistory: terminal.getCommandHistory() || []
-  }
 }
 
 /**
@@ -178,8 +99,6 @@ export function initializeTerminalHandlers(service: TerminalManagementService): 
   
   // Set up TerminalManagementService event forwarding
   setupTerminalServiceEvents()
-  
-  console.log('✅ Terminal handlers initialized with services')
 }
 
 /**
@@ -188,14 +107,8 @@ export function initializeTerminalHandlers(service: TerminalManagementService): 
 function setupTerminalServiceEvents() {
   // Forward data events to renderer
   terminalManagementService.on('data', ({ id, data }) => {
-    const webContents = terminalWebContentsMap.get(id)
-    
-    // console.log(`[TerminalHandler] 📨 Forwarding data from PTY ${id}:`, {
-    //   dataLength: data.length,
-    //   hasWebContents: !!webContents,
-    //   isDestroyed: webContents?.isDestroyed()
-    // })
-    
+    const webContents = terminalManagementService.getWebContents(id)
+
     if (webContents && !webContents.isDestroyed()) {
       const channel = getTerminalDataChannel(id)
       // console.log(`[TerminalHandler] 📡 Sending data on channel ${channel}`)
@@ -204,7 +117,7 @@ function setupTerminalServiceEvents() {
       console.warn(`[TerminalHandler] ⚠️ Cannot forward data - no valid webContents for terminal ${id}`)
       // Clean up invalid WebContents reference
       if (webContents) {
-        terminalWebContentsMap.delete(id)
+        terminalManagementService.unregisterWebContents(id)
       }
     }
   })
@@ -212,7 +125,7 @@ function setupTerminalServiceEvents() {
 
   // Forward exit events to renderer
   terminalManagementService.on('exit', ({ id, exitCode }) => {
-    const webContents = terminalWebContentsMap.get(id)
+    const webContents = terminalManagementService.getWebContents(id)
     
     console.log(`[TerminalHandler] 🚪 Forwarding exit from PTY ${id}:`, { exitCode })
     
@@ -224,8 +137,7 @@ function setupTerminalServiceEvents() {
       console.warn(`[TerminalHandler] ⚠️ Cannot forward exit - no valid webContents for terminal ${id}`)
     }
     
-    // Clean up WebContents mapping when terminal exits
-    terminalWebContentsMap.delete(id)
+    // WebContents cleanup is now handled automatically by TerminalManagementService.kill()
   })
 }
 

@@ -4,25 +4,22 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import type {
   WorkspaceState,
-  WorkspaceStateConfig,
-  WorkspaceStateService as IWorkspaceStateService,
   ProjectWorkspaceMeta,
   PersistedTerminal
 } from '../types/workspace-state.js';
-import type { TerminalManagementService } from './terminal-management-service';
 
 
 /**
  * SOTA Workspace State Service
  * 
- * Centralized storage for terminal workspace states following the GitCheckpointService pattern.
+ * Centralized storage for terminal workspace states
  * Stores data in ~/.odyssey/workspaces/{projectHash}/workspace.json
  */
-export class WorkspaceStateService implements IWorkspaceStateService {
-  private baseDir: string;
+export class WorkspaceStateService {
+  private readonly baseDir: string;
 
-  constructor(config: WorkspaceStateConfig = {}) {
-    this.baseDir = config.basePath || join(homedir(), '.odyssey', 'workspaces');
+  constructor() {
+    this.baseDir = join(homedir(), '.odyssey', 'workspaces');
   }
 
   /**
@@ -96,44 +93,6 @@ export class WorkspaceStateService implements IWorkspaceStateService {
   }
 
   /**
-   * Clear workspace state for a project
-   */
-  async clearWorkspaceState(projectPath: string): Promise<void> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-      const statePath = this.getWorkspaceStatePath(projectHash);
-
-      try {
-        await fs.unlink(statePath);
-        console.log(`🗑️ Workspace state cleared for project: ${projectPath}`);
-      } catch (error: any) {
-        if (error.code !== 'ENOENT') {
-          throw error;
-        }
-        // File doesn't exist, which is fine
-      }
-    } catch (error: any) {
-      console.error(`❌ Failed to clear workspace state for ${projectPath}:`, error.message);
-      throw new Error(`Failed to clear workspace state: ${error.message}`);
-    }
-  }
-
-  /**
-   * Check if workspace state exists for a project
-   */
-  async hasWorkspaceState(projectPath: string): Promise<boolean> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-      const statePath = this.getWorkspaceStatePath(projectHash);
-
-      await fs.access(statePath);
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
    * Get all projects that have workspace state
    */
   async listWorkspaceProjects(): Promise<string[]> {
@@ -178,62 +137,6 @@ export class WorkspaceStateService implements IWorkspaceStateService {
   }
 
   /**
-   * Delete workspace state for projects that no longer exist
-   */
-  async cleanupOrphanedStates(): Promise<number> {
-    try {
-      await this.ensureBaseDir();
-      let cleaned = 0;
-
-      try {
-        const projectDirs = await fs.readdir(this.baseDir, { withFileTypes: true });
-
-        for (const dir of projectDirs) {
-          if (dir.isDirectory()) {
-            const projectPath = join(this.baseDir, dir.name);
-            // Lock functionality removed - now using simple file writes
-            try {
-              const statePath = join(projectPath, 'workspace.json');
-              try {
-                // Check if state file exists and is valid
-                const content = await fs.readFile(statePath, 'utf8');
-                const state = JSON.parse(content) as WorkspaceState;
-
-                if (!this.isValidWorkspaceState(state)) {
-                  // Invalid state, clean it up
-                  await fs.rm(projectPath, { recursive: true, force: true });
-                  cleaned++;
-                  console.log(`🧹 Cleaned up invalid workspace state: ${dir.name}`);
-                }
-              } catch (error) {
-                // Invalid or missing state file, clean up the directory
-                await fs.rm(projectPath, { recursive: true, force: true });
-                cleaned++;
-                console.log(`🧹 Cleaned up orphaned workspace directory: ${dir.name}`);
-              }
-            } finally {
-              // Lock functionality removed
-            }
-          }
-        }
-      } catch (error: any) {
-        if (error.code !== 'ENOENT') {
-          console.error('Failed during cleanup:', error.message);
-        }
-      }
-
-      if (cleaned > 0) {
-        console.log(`✅ Cleaned up ${cleaned} orphaned workspace states`);
-      }
-
-      return cleaned;
-    } catch (error: any) {
-      console.error('Failed to cleanup orphaned states:', error.message);
-      return 0;
-    }
-  }
-
-  /**
    * Get project metadata without loading full state
    */
   async getProjectMeta(projectPath: string): Promise<ProjectWorkspaceMeta | null> {
@@ -254,99 +157,6 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       };
     } catch (error) {
       return null;
-    }
-  }
-
-  /**
-   * Create a default empty workspace state
-   */
-  createEmptyState(): WorkspaceState {
-    return {
-      terminals: [],
-      activeTerminalId: null,
-      lastSaved: Date.now(),
-      version: '1.0.0'
-    };
-  }
-
-  /**
-   * Save workspace state from TerminalManagementService
-   * This is a convenience method that extracts terminal state from the service
-   */
-  async saveFromTerminalService(projectPath: string, terminalService: TerminalManagementService, activeTerminalId?: string | null): Promise<void> {
-    try {
-      const serializedTerminals = terminalService.serializeAll();
-      
-      // Convert SerializedTerminalInstance to PersistedTerminal
-      const persistedTerminals: PersistedTerminal[] = serializedTerminals.map(serialized => ({
-        id: serialized.id,
-        title: serialized.title,
-        type: 'terminal', // Default type could be enhanced based on actual terminal type
-        cwd: serialized.cwd,
-        shell: serialized.shell,
-        createdAt: serialized.createdAt,
-        isActive: serialized.isAlive,
-        commandHistory: serialized.commandHistory,
-        currentCwd: serialized.currentCwd,
-        runningProcess: serialized.runningProcess
-      }));
-
-      const workspaceState: WorkspaceState = {
-        terminals: persistedTerminals,
-        activeTerminalId: activeTerminalId ?? null,
-        lastSaved: Date.now(),
-        version: '1.0.0'
-      };
-
-      await this.saveWorkspaceState(projectPath, workspaceState);
-      console.log(`✅ Saved workspace state with ${persistedTerminals.length} terminals and ${persistedTerminals.reduce((total, t) => total + (t.commandHistory?.length || 0), 0)} total command history entries`);
-    } catch (error: any) {
-      console.error('❌ Failed to save workspace state from terminal service:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Load workspace state and restore to TerminalManagementService
-   * This is a convenience method that loads state and restores terminals
-   */
-  async loadToTerminalService(projectPath: string, terminalService: TerminalManagementService): Promise<{ activeTerminalId: string | null; terminalCount: number }> {
-    try {
-      const workspaceState = await this.loadWorkspaceState(projectPath);
-      
-      if (!workspaceState || workspaceState.terminals.length === 0) {
-        console.log('📭 No terminal state to restore');
-        return { activeTerminalId: null, terminalCount: 0 };
-      }
-
-      // Convert PersistedTerminal to SerializedTerminalInstance for restoration
-      const serializedTerminals = workspaceState.terminals.map(persisted => ({
-        id: persisted.id,
-        title: persisted.title,
-        cwd: persisted.cwd,
-        shell: persisted.shell || '',
-        cols: 80, // Default dimensions
-        rows: 30,
-        isAlive: false, // Will be set to true when PTY is created
-        commandHistory: persisted.commandHistory || [],
-        createdAt: persisted.createdAt,
-        currentCwd: persisted.currentCwd,
-        runningProcess: persisted.runningProcess
-      }));
-
-      // Restore terminals to the service
-      terminalService.restoreFromSerialized(serializedTerminals);
-
-      const totalCommandEntries = serializedTerminals.reduce((total, t) => total + t.commandHistory.length, 0);
-      console.log(`✅ Restored ${serializedTerminals.length} terminals with ${totalCommandEntries} total command history entries`);
-
-      return {
-        activeTerminalId: workspaceState.activeTerminalId,
-        terminalCount: serializedTerminals.length
-      };
-    } catch (error: any) {
-      console.error('❌ Failed to load workspace state to terminal service:', error.message);
-      throw error;
     }
   }
 
@@ -403,23 +213,6 @@ export class WorkspaceStateService implements IWorkspaceStateService {
       return false;
     }
 
-    // Validate commandHistory if present
-    if (terminal.commandHistory !== undefined) {
-      if (!Array.isArray(terminal.commandHistory)) {
-        return false;
-      }
-      // Validate each command history entry
-      if (!terminal.commandHistory.every((entry: any) => 
-        typeof entry === 'object' &&
-        typeof entry.command === 'string' &&
-        typeof entry.output === 'string' &&
-        typeof entry.exitCode === 'number' &&
-        typeof entry.timestamp === 'number' &&
-        typeof entry.cwd === 'string'
-      )) {
-        return false;
-      }
-    }
 
     // Validate optional fields
     if (terminal.currentCwd !== undefined && typeof terminal.currentCwd !== 'string') {
