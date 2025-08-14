@@ -53,7 +53,7 @@ function registerHandlersAndGenerateApi(
 
     // Build API structure for frontend
     if (method) {
-      // Module with methods (e.g., terminal, mcp, etc.)
+      // Module with methods (e.g., terminal, settings, etc.)
       if (!structure[channel]) {
         structure[channel] = {};
       }

@@ -1,14 +1,11 @@
 /**
- * Workspace Handler - Business-Oriented API Implementation
- * 
- * This handler implements the new unified workspace API that focuses on
- * business actions rather than low-level data operations. It abstracts away
- * implementation details like project paths and workspace state files.
+ * Workspace Handler
+ *
  */
 
 import { IpcMainInvokeEvent } from 'electron';
 import type { HandlerServices } from './index.js';
-import type { Project, ProjectWorkspaceMeta } from '../types/index.js';
+import type { Project } from '../types/index.js';
 import type { WorkspaceStateService } from '../services/workspace-state-service.js';
 import type { TerminalManagementService } from '../services/terminal-management-service.js';
 
@@ -46,8 +43,6 @@ export async function load(
 
   const service = workspaceStateService;
   
-  console.log(`📥 Loading workspace state for project: ${project.path}`);
-  
   // Load workspace state from storage
   const workspaceState = await service.loadWorkspaceState(project.path);
   
@@ -74,9 +69,7 @@ export async function load(
   
   // Clean current terminals before restoring
   terminalManagementService.cleanup();
-  
-  // Rebuild terminal instances from saved state
-  console.log(`🔄 Rebuilding ${workspaceState.terminals.length} terminal instances...`);
+
   let successfulRestorations = 0;
   
   for (const terminalInfo of workspaceState.terminals) {
@@ -88,27 +81,17 @@ export async function load(
         terminalInfo.id,
         terminalInfo.shell || '',
         terminalInfo.currentCwd || terminalInfo.cwd,
-        80, // Default cols, will be resized by frontend
-        30  // Default rows, will be resized by frontend
+        80, // Frontend, will resize default cols
+        30  // Frontend, will resize default rows
       );
       
       // Restore dynamic state if available
       const terminalInstance = terminalManagementService.getTerminal(terminalInfo.id);
       if (terminalInstance) {
-        if (terminalInfo.currentCwd) {
-          terminalInstance.updateCurrentCwd(terminalInfo.currentCwd);
-          console.log(`📁 Restored CWD for ${terminalInfo.id}: ${terminalInfo.currentCwd}`);
-        }
-        if (terminalInfo.runningProcess) {
-          terminalInstance.updateRunningProcess(terminalInfo.runningProcess);
-          console.log(`⚙️ Restored process for ${terminalInfo.id}: ${terminalInfo.runningProcess}`);
-        }
         successfulRestorations++;
       } else {
         console.warn(`⚠️ Terminal instance not found after creation: ${terminalInfo.id}`);
       }
-      
-      console.log(`✅ Rebuilt terminal instance: ${terminalInfo.id} (${terminalInfo.title})`);
     } catch (error) {
       console.error(`❌ Failed to rebuild terminal ${terminalInfo.id}:`, error);
       console.error(`🔍 Terminal info:`, {
@@ -152,10 +135,7 @@ export async function save(
   }
 
   const service = workspaceStateService;
-  
-  console.log(`💾 Saving workspace state for project: ${project.path}`);
-  console.log(`📦 Terminal states provided:`, terminalStates ? Object.keys(terminalStates).length : 0);
-  
+
   // Get basic terminal info from management service
   const terminals = terminalManagementService.getAllInstances().map(instance => ({
     id: instance.id,
@@ -180,45 +160,13 @@ export async function save(
 
   // Save to a file system
   await service.saveWorkspaceState(project.path, workspaceState);
-  
   console.log(`✅ Saved workspace state for project: ${project.path} with ${terminals.length} terminals and ${Object.keys(terminalStates || {}).length} serialized states`);
-
-  // Note: DO NOT cleanup terminals here - they should remain alive until the next project is loaded
-  // Terminal cleanup is handled in the load() function to ensure proper project switching
 }
-
-
-export async function listProjects(
-  _event: IpcMainInvokeEvent
-): Promise<ProjectWorkspaceMeta[]> {
-  const service = workspaceStateService;
-  
-  // Get all project paths that have workspace state
-  const projectPaths = await service.listWorkspaceProjects();
-  
-  // Get metadata for each project
-  const projectMetas: ProjectWorkspaceMeta[] = [];
-  
-  for (const projectPath of projectPaths) {
-    const meta = await service.getProjectMeta(projectPath);
-    if (meta) {
-      projectMetas.push(meta);
-    }
-  }
-  
-  // Sort by last modified time (newest first)
-  projectMetas.sort((a, b) => b.lastModified - a.lastModified);
-  
-  return projectMetas;
-}
-
 
 /**
  * Initialize workspace handlers with service dependencies
  */
 export function initializeWorkspaceHandlers(services: HandlerServices): void {
-  // Inject service dependencies
   workspaceStateService = services.workspaceStateService;
   terminalManagementService = services.terminalManagementService;
-  console.log('✅ Workspace handlers initialized with services')
 }

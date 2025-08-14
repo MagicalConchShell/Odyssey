@@ -4,7 +4,6 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import type {
   WorkspaceState,
-  ProjectWorkspaceMeta,
   PersistedTerminal
 } from '../types/workspace-state.js';
 
@@ -30,7 +29,7 @@ export class WorkspaceStateService {
       const projectHash = this.hashProjectPath(projectPath);
       const statePath = this.getWorkspaceStatePath(projectHash);
       
-      console.log(`💾 Starting save project ${projectPath} workspace state : ${statePath}`);
+      console.log(`Starting save project ${projectPath} workspace state : ${statePath}`);
       
       await this.ensureProjectDir(projectHash);
 
@@ -41,10 +40,7 @@ export class WorkspaceStateService {
         version: '1.0.0'
       };
 
-      console.log(`📋 Saving state with ${stateWithMeta.terminals.length} terminals`);
       await fs.writeFile(statePath, JSON.stringify(stateWithMeta, null, 2), 'utf8');
-
-      console.log(`✅ Workspace state saved for project: ${projectPath} (${projectHash.substring(0, 8)})`);
     } catch (error: any) {
       console.error(`❌ Failed to save workspace state for ${projectPath}:`, error.message);
       console.error(`🔍 Error details:`, {
@@ -70,7 +66,6 @@ export class WorkspaceStateService {
       try {
         await fs.access(statePath);
       } catch (error) {
-        // File doesn't exist, return null
         return null;
       }
 
@@ -82,80 +77,9 @@ export class WorkspaceStateService {
         console.warn(`Invalid workspace state found for ${projectPath}, returning empty state`);
         return null;
       }
-
-      console.log(`📥 Workspace state loaded for project: ${projectPath} (${state.terminals.length} terminals)`);
       return state;
     } catch (error: any) {
       console.error(`❌ Failed to load workspace state for ${projectPath}:`, error.message);
-      // Return null instead of throwing - we want graceful degradation
-      return null;
-    }
-  }
-
-  /**
-   * Get all projects that have workspace state
-   */
-  async listWorkspaceProjects(): Promise<string[]> {
-    try {
-      await this.ensureBaseDir();
-      const projects: string[] = [];
-
-      try {
-        const projectDirs = await fs.readdir(this.baseDir, { withFileTypes: true });
-
-        for (const dir of projectDirs) {
-          if (dir.isDirectory()) {
-            const statePath = join(this.baseDir, dir.name, 'workspace.json');
-            try {
-              await fs.access(statePath);
-              
-              // Read the state to validate it exists and is valid
-              const content = await fs.readFile(statePath, 'utf8');
-              JSON.parse(content) as WorkspaceState; // Validate JSON format
-              
-              // For now, we can only return the hash since we can't reverse it
-              // In a production system, we might want to store project path mapping
-              projects.push(dir.name);
-            } catch (error) {
-              // Skip invalid or inaccessible states
-              continue;
-            }
-          }
-        }
-      } catch (error: any) {
-        if (error.code !== 'ENOENT') {
-          console.error('Failed to list workspace projects:', error.message);
-        }
-        // Directory doesn't exist yet, return empty array
-      }
-
-      return projects;
-    } catch (error: any) {
-      console.error('Failed to list workspace projects:', error.message);
-      return [];
-    }
-  }
-
-  /**
-   * Get project metadata without loading full state
-   */
-  async getProjectMeta(projectPath: string): Promise<ProjectWorkspaceMeta | null> {
-    try {
-      const projectHash = this.hashProjectPath(projectPath);
-      const statePath = this.getWorkspaceStatePath(projectHash);
-
-      const stats = await fs.stat(statePath);
-      const content = await fs.readFile(statePath, 'utf8');
-      const state = JSON.parse(content) as WorkspaceState;
-
-      return {
-        projectPath,
-        projectHash,
-        lastModified: stats.mtime.getTime(),
-        terminalCount: state.terminals.length,
-        activeTerminalId: state.activeTerminalId
-      };
-    } catch (error) {
       return null;
     }
   }

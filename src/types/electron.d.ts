@@ -1,40 +1,16 @@
 // Import backend types for consistency
 export type {
   Project,
-  Session,
-  ClaudeCliInfo,
-  ClaudeExecutionOptions,
-  ClaudeExecutionResult,
   UsageEntry,
   UsageStats,
   ModelUsageStats,
   ProjectUsageStats,
   DateUsageStats,
-  McpServer,
-  McpResponse,
-  FileResponse,
   ApiResponse,
-  ClaudeMdFile,
-  ProjectStats,
   GitStatusResult,
-  ScreenshotResponse,
-  ProjectCreateRequest,
-  ProjectUpdateRequest,
   ClaudeProjectImportCandidate,
-  FileSystemEventType,
-  FileSystemChangeEvent
-} from '../../electron/handlers/types';
+} from '../../electron/types';
 
-// Import git checkpoint types from backend
-export type {
-  CheckpointInfo,
-  FileRestoreInfo,
-  CheckpointDiff,
-  StorageStats,
-  FileDiff,
-  DiffStats,
-  CheckoutOptions
-} from '../../electron/types/checkpoint';
 
 // Import workspace state types
 export type {
@@ -42,18 +18,6 @@ export type {
   ProjectWorkspaceMeta,
 } from '../../electron/types/workspace-state';
 
-// Additional frontend-specific types
-export interface ClaudeSettings {
-  includeCoAuthoredBy?: boolean;
-  verbose?: boolean;
-  cleanupPeriodDays?: number;
-  apiKeyHelper?: string;
-  permissions?: {
-    allow?: string[];
-    deny?: string[];
-  };
-  env?: Record<string, string>;
-}
 
 export interface MessageDebugInfo {
   component: string;
@@ -71,7 +35,6 @@ declare global {
       ping: () => Promise<ApiResponse<string>>;
       getPlatform: () => Promise<ApiResponse<string>>;
       openExternal: (url: string) => Promise<ApiResponse<void>>;
-      captureWebviewScreenshot: (selector: string) => Promise<ScreenshotResponse>;
 
       // Terminal handlers
       terminal: {
@@ -87,54 +50,15 @@ declare global {
       removeListener?: (channel: string, listener: (...args: any[]) => void) => void;
       removeAllListeners?: (channel: string) => void;
 
-      // Claude CLI handlers
-      claudeCli: {
-        getBinaryPath: () => Promise<ApiResponse<string | null>>;
-        setBinaryPath: (path: string) => Promise<ApiResponse<void>>;
-        getInfo: () => Promise<ApiResponse<ClaudeCliInfo>>;
-        executeCommand: (args: string[], options?: ClaudeExecutionOptions) => Promise<ClaudeExecutionResult>;
-      };
 
-      // File system handlers
-      fileSystem: {
-        readFile: (filePath: string) => Promise<FileResponse>;
-        writeFile: (filePath: string, content: string) => Promise<FileResponse>;
-        readDirectory: (dirPath: string) => Promise<ApiResponse<any[]>>;
-        getDirectoryChildren: (dirPath: string) => Promise<ApiResponse<any[]>>;
-        getSystemPrompt: () => Promise<FileResponse>;
-        saveSystemPrompt: (content: string) => Promise<FileResponse>;
-        findClaudeMdFiles: (directory: string) => Promise<ApiResponse<ClaudeMdFile[]>>;
-        readClaudeMdFile: (filePath: string) => Promise<FileResponse>;
-        saveClaudeMdFile: (filePath: string, content: string) => Promise<FileResponse>;
-        startFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
-        stopFileSystemWatcher: (projectPath: string) => Promise<ApiResponse<void>>;
-      };
 
-      // Settings handlers
+      // Environment variables handlers
       settings: {
-        getClaudeSettings: () => Promise<ApiResponse<any>>;
-        saveClaudeSettings: (settings: any) => Promise<ApiResponse<void>>;
+        getEnvironmentVariables: () => Promise<ApiResponse<Record<string, string>>>;
+        saveEnvironmentVariables: (env: Record<string, string>) => Promise<ApiResponse<void>>;
       };
 
-      // MCP handlers
-      mcp: {
-        list: () => Promise<ApiResponse<McpServer[]>>;
-        clearCache: () => Promise<ApiResponse<void>>;
-        add: (name: string, command: string, transport?: string, args?: string[], env?: Record<string, string>, url?: string, scope?: string) => Promise<McpResponse>;
-        remove: (name: string) => Promise<McpResponse>;
-        testConnection: (name: string) => Promise<McpResponse>;
-        addFromClaudeDesktop: (configPath?: string) => Promise<McpResponse>;
-        addJson: (name: string, configJson: string, scope?: string) => Promise<McpResponse>;
-        serve: () => Promise<McpResponse>;
-      };
 
-      // Claude Code session handlers
-      claudeCodeSession: {
-        execute: (projectPath: string, prompt: string, model?: string) => Promise<ApiResponse<{ sessionId: string }>>;
-        resume: (projectPath: string, sessionId: string, prompt: string, model?: string) => Promise<ApiResponse<void>>;
-        cancel: (sessionId?: string) => Promise<ApiResponse<void>>;
-        loadHistory: (sessionId: string, projectId: string) => Promise<ApiResponse<any[]>>;
-      };
 
       // Usage analytics handlers
       usage: {
@@ -146,43 +70,17 @@ declare global {
         getCacheStats: () => Promise<ApiResponse<any>>;
       };
 
-      // Checkpoint handlers
-      checkpoint: {
-        createCheckpoint: (projectPath: string, description?: string, author?: string) => Promise<ApiResponse<{ commitHash: string }>>;
-        checkout: (projectPath: string, ref: string, options?: CheckoutOptions) => Promise<ApiResponse<void>>;
-        resetToCheckpoint: (projectPath: string, targetCommitHash: string) => Promise<ApiResponse<void>>;
-        deleteCheckpoint: (projectPath: string, commitHash: string) => Promise<ApiResponse<void>>;
-        getHistory: (projectPath: string) => Promise<ApiResponse<CheckpointInfo[]>>;
-        getCheckpointInfo: (projectPath: string, ref: string) => Promise<ApiResponse<CheckpointInfo | null>>;
-        listFiles: (projectPath: string, ref: string) => Promise<ApiResponse<FileRestoreInfo[]>>;
-        getFileDiff: (projectPath: string, fromRef: string, toRef: string) => Promise<ApiResponse<CheckpointDiff>>;
-        getCheckpointChanges: (projectPath: string, ref: string) => Promise<ApiResponse<CheckpointDiff>>;
-        getFileContent: (projectPath: string, ref: string, filePath: string) => Promise<ApiResponse<string>>;
-        getFileContentByHash: (projectPath: string, hash: string) => Promise<ApiResponse<string>>;
-        getFileContentDiff: (projectPath: string, fromRef: string, toRef: string, filePath: string) => Promise<ApiResponse<any>>;
-        getStorageStats: (projectPath: string) => Promise<ApiResponse<StorageStats>>;
-        garbageCollect: (projectPath: string) => Promise<ApiResponse<void>>;
-        optimizeStorage: (projectPath: string) => Promise<ApiResponse<void>>;
-        getGitStatus: (projectPath: string) => Promise<ApiResponse<GitStatusResult>>;
-      };
 
-      // Project management handlers (pure data operations)
-      projectManagement: {
-        // Pure database-driven project management
+      // Project handlers (pure data operations)
+      project: {
+        // Pure database-driven project operations
         openFolder: () => Promise<ApiResponse<Project>>;
         listProjects: () => Promise<ApiResponse<Project[]>>;
-        createProject: (request: ProjectCreateRequest) => Promise<ApiResponse<Project>>;
-        updateProject: (id: string, request: ProjectUpdateRequest) => Promise<ApiResponse<Project>>;
-        deleteProject: (id: string) => Promise<ApiResponse<boolean>>;
-        openProject: (id: string) => Promise<ApiResponse<Project>>;
         
         // Claude project import functionality  
         getClaudeProjectImportCandidates: () => Promise<ApiResponse<ClaudeProjectImportCandidate[]>>;
         importClaudeProjects: (claudeProjectIds: string[]) => Promise<ApiResponse<{ imported: number, failed: number }>>;
         
-        // Legacy support
-        getProjectSessions: (projectId: string) => Promise<Session[]>;
-        getProjectStats: (projectPath: string) => Promise<ProjectStats>;
       };
 
       // Business-oriented workspace operations
@@ -194,8 +92,6 @@ declare global {
           terminalStates?: Record<string, string>;
         }>>;
         save: (projectId: string, terminalStates?: Record<string, string>) => Promise<ApiResponse<void>>;
-        listProjects: () => Promise<ApiResponse<ProjectWorkspaceMeta[]>>;
-        cleanupOrphanedStates: () => Promise<ApiResponse<number>>;
       };
     };
   }

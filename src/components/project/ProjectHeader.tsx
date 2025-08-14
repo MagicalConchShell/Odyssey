@@ -33,7 +33,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   const loadProjects = async () => {
     try {
       setIsLoading(true)
-      const result = await window.electronAPI.projectManagement.listProjects()
+      const result = await window.electronAPI.project.listProjects()
       if (result.success && Array.isArray(result.data)) {
         // Filter out any invalid projects and sort: pinned first, then by last_opened
         const validProjects = result.data.filter((project: Project) => 
@@ -78,7 +78,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
 
   const handleOpenFolder = async () => {
     try {
-      const result = await window.electronAPI.projectManagement.openFolder()
+      const result = await window.electronAPI.project.openFolder()
       if (result.success && result.data) {
         onProjectSelect(result.data)
         loadProjects()

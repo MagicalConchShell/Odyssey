@@ -24,7 +24,7 @@ interface ClaudeProjectImportCandidate {
 
 interface WelcomeScreenProps {
   onSelectProject: (project: Project) => void
-  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
+  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor') => void
   className?: string
 }
 
@@ -41,14 +41,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const [refreshFunction, setRefreshFunction] = useState<(() => Promise<void>) | null>(null)
 
   // Handle navigation to different app views
-  const handleNavigate = (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => {
+  const handleNavigate = (view: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor') => {
     onNavigate(view)
   }
 
   // Handle folder opening
   const handleOpenFolder = async () => {
     try {
-      const response = await window.electronAPI.projectManagement.openFolder()
+      const response = await window.electronAPI.project.openFolder()
       if (response.success && response.data) {
         // Navigate to the project using the full project object
         onSelectProject(response.data)
@@ -70,7 +70,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     try {
       setImportLoading(true)
       setImportPhase('scanning')
-      const response = await window.electronAPI.projectManagement.getClaudeProjectImportCandidates()
+      const response = await window.electronAPI.project.getClaudeProjectImportCandidates()
       if (response.success) {
         setImportCandidates(response.data || [])
         // Pre-select all candidates
@@ -89,7 +89,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     try {
       setImportLoading(true)
       setImportPhase('importing')
-      const response = await window.electronAPI.projectManagement.importClaudeProjects(
+      const response = await window.electronAPI.project.importClaudeProjects(
         Array.from(selectedCandidates)
       )
       if (response.success) {

@@ -1,8 +1,5 @@
 /**
- * PtyService - Clean PTY Process Lifecycle Management
- * 
- * This service implements the SOTA architecture from terminal_architecture_v1.md
- * It handles ONLY PTY process management - no UI knowledge, no complex recovery logic
+ * PtyService
  */
 
 import * as pty from 'node-pty'
@@ -34,12 +31,10 @@ export class PtyService extends EventEmitter {
   }
 
 
-
   /**
    * Create a new PTY process
    */
-  create(id: string, shell: string, cwd: string, cols: number = 80, rows: number = 30): void {
-    // Clean up any existing PTY with the same ID
+  create(id: string, shell: string, cwd: string, cols: number = 80, rows: number = 30, customEnv?: Record<string, string>): void {
     if (this.ptyMap.has(id)) {
       this.kill(id)
     }
@@ -54,6 +49,7 @@ export class PtyService extends EventEmitter {
     // Create PTY process
     const env = {
       ...process.env,
+      ...customEnv,  // User-configured environment variables
       TERM: 'xterm-256color',
       BASH_SILENCE_DEPRECATION_WARNING: '1',
       ZSH_DISABLE_COMPFIX: 'true',
@@ -89,8 +85,6 @@ export class PtyService extends EventEmitter {
       // Clean up from map
       this.ptyMap.delete(id)
     })
-
-    console.log(`[PtyService] Created PTY ${id} with shell ${selectedShell} in ${cwd}`)
   }
 
   /**

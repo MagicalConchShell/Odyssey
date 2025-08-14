@@ -1,8 +1,5 @@
 /**
  * TerminalManagementService - TerminalInstance Lifecycle Manager
- * 
- * This service implements the SOTA architecture from terminal_persistence_refactor_plan_v2.md
- * It manages TerminalInstance objects and focuses purely on lifecycle management
  */
 
 import { EventEmitter } from 'events'
@@ -20,7 +17,7 @@ export class TerminalManagementService extends EventEmitter {
   /**
    * Create a new terminal instance
    */
-  create(id: string, shell: string, cwd: string, cols: number = 80, rows: number = 30): void {
+  create(id: string, shell: string, cwd: string, cols: number = 80, rows: number = 30, customEnv?: Record<string, string>): void {
     // Clean up any existing terminal with the same ID
     if (this.terminalMap.has(id)) {
       this.kill(id)
@@ -32,7 +29,8 @@ export class TerminalManagementService extends EventEmitter {
       shell: shell || undefined,
       cwd,
       cols,
-      rows
+      rows,
+      customEnv
     })
 
     // Store instance
@@ -45,7 +43,6 @@ export class TerminalManagementService extends EventEmitter {
 
     terminalInstance.on('exit', (data) => {
       this.emit('exit', data)
-      // Clean up from map when terminal exits
       this.terminalMap.delete(id)
     })
 

@@ -132,11 +132,7 @@ app.on('window-all-closed', () => {
 
 // Handle app shutdown
 app.on('before-quit', async () => {
-  console.log('🚪 Application is shutting down, cleaning up resources...');
-
-  // Terminal state saving is now handled by frontend through workspace handlers
-  // No automatic saving during shutdown needed since frontend manages serialization
-  console.log('🔄 Application shutdown - terminal state managed by frontend');
+  console.log('Application is shutting down, cleaning up resources...');
 
   // Clean up database connection
   dbManager.close();

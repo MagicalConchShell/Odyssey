@@ -1,13 +1,11 @@
 import {useState, useEffect, useCallback} from 'react'
 import {ArrowLeft} from 'lucide-react'
-import {ClaudeMdFile} from './types/electron'
 
 // Import components
 import {ProjectWorkspace} from '@/components/project'
 import {Project} from '@/components/project'
 import {Settings} from '@/components/Settings'
 import {UsageDashboard} from '@/components/UsageDashboard'
-import {MCPManager} from '@/components/mcp'
 import {WelcomeScreen} from '@/components/WelcomeScreen'
 import {Topbar} from '@/components/layout'
 import {ThemeProvider} from '@/components/theme-provider'
@@ -19,11 +17,9 @@ type View =
   "welcome"
   | "settings"
   | "usage-dashboard"
-  | "mcp"
   | "project-workspace"
   | "editor"
   | "claude-editor"
-  | "claude-file-editor"
 
 function App() {
   const [view, setView] = useState<View>("welcome")
@@ -38,8 +34,6 @@ function App() {
   const setProject = useAppStore((state) => state.setProject)
   const setProjectPath = useAppStore((state) => state.setProjectPath)
 
-  // CLAUDE.md editor state
-  const [selectedClaudeMdFile] = useState<ClaudeMdFile | null>(null)
 
   // The persist middleware now handles automatic state initialization
 
@@ -148,7 +142,7 @@ function App() {
 
   const handleOpenFolder = useCallback(async () => {
     try {
-      const response = await window.electronAPI.projectManagement.openFolder()
+      const response = await window.electronAPI.project.openFolder()
       if (response.success && response.data) {
         await handleSelectProject(response.data)
       } else {
@@ -193,14 +187,10 @@ function App() {
         return renderSettingsView()
       case "usage-dashboard":
         return renderUsageView()
-      case "mcp":
-        return renderMCPView()
       case "editor":
         return renderEditorView()
       case "claude-editor":
         return renderClaudeEditorView()
-      case "claude-file-editor":
-        return renderClaudeFileEditorView()
       default:
         return renderWelcomeView()
     }
@@ -232,9 +222,6 @@ function App() {
     <UsageDashboard onBack={() => setView("welcome")}/>
   )
 
-  const renderMCPView = () => (
-    <MCPManager onBack={() => setView("welcome")}/>
-  )
 
   const renderEditorView = () => (
     <div className="min-h-screen bg-background p-4">
@@ -292,41 +279,6 @@ function App() {
     </div>
   )
 
-  const renderClaudeFileEditorView = () => {
-    if (!selectedClaudeMdFile) {
-      return (
-        <div className="min-h-screen bg-background p-4">
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center py-12">
-              <p className="text-lg text-muted-foreground">No CLAUDE.md file selected</p>
-              <button
-                onClick={() => setView("welcome")}
-                className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-              >
-                Go to Welcome
-              </button>
-            </div>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center py-12">
-            <p className="text-lg text-muted-foreground">File editor functionality has been removed</p>
-            <button
-              onClick={() => setView("welcome")}
-              className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-            >
-              Go to Welcome
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <ThemeProvider defaultTheme="dark" storageKey="odyssey-ui-theme">

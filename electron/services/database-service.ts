@@ -37,7 +37,7 @@ export interface Project {
  */
 class DatabaseManager {
   private db: Database.Database | null = null
-  private dbPath: string
+  private readonly dbPath: string
 
   constructor() {
     const odysseyDir = join(homedir(), '.odyssey')
@@ -105,6 +105,17 @@ class DatabaseManager {
         )
     `)
 
+    // Create environment_variables table
+    this.db.exec(`
+        CREATE TABLE IF NOT EXISTS environment_variables
+        (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    `)
 
     // Create indexes for better performance
     this.db.exec(`
@@ -112,6 +123,7 @@ class DatabaseManager {
         CREATE INDEX IF NOT EXISTS idx_usage_data_timestamp ON usage_data(timestamp);
         CREATE INDEX IF NOT EXISTS idx_projects_last_opened ON projects(last_opened);
         CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type);
+        CREATE INDEX IF NOT EXISTS idx_environment_variables_key ON environment_variables(key);
     `)
 
   }
@@ -304,6 +316,73 @@ class DatabaseManager {
         console.warn('Projects table does not exist yet, returning null')
         return null
       }
+      throw error
+    }
+  }
+
+  /**
+   * Get all environment variables from the database
+   */
+  getEnvironmentVariables(): Record<string, string> {
+    if (!this.db) {
+      this.initialize()
+    }
+
+    if (!this.db) throw new Error('Database not initialized')
+
+    try {
+      const stmt = this.db.prepare('SELECT key, value FROM environment_variables ORDER BY key')
+      const rows = stmt.all() as Array<{ key: string; value: string }>
+      
+      const result: Record<string, string> = {}
+      for (const row of rows) {
+        result[row.key] = row.value
+      }
+      
+      return result
+    } catch (error) {
+      console.error('Error getting environment variables from database:', error)
+      // If table doesn't exist yet, return empty object
+      if (error instanceof Error && error.message.includes('no such table')) {
+        console.warn('Environment variables table does not exist yet, returning empty object')
+        return {}
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Save environment variables to the database (replaces all existing)
+   */
+  saveEnvironmentVariables(env: Record<string, string>): void {
+    if (!this.db) {
+      this.initialize()
+    }
+
+    if (!this.db) throw new Error('Database not initialized')
+
+    try {
+      // Use transaction for consistency
+      this.db.transaction(() => {
+        // Clear all existing environment variables
+        this.db!.prepare('DELETE FROM environment_variables').run()
+        
+        // Insert new environment variables
+        const insertStmt = this.db!.prepare(`
+          INSERT INTO environment_variables (key, value, created_at, updated_at)
+          VALUES (?, ?, ?, ?)
+        `)
+        
+        const now = Date.now()
+        
+        for (const [key, value] of Object.entries(env)) {
+          if (key.trim() && value.trim()) {
+            insertStmt.run(key, value, now, now)
+          }
+        }
+      })()
+    } catch (error) {
+      console.error('Error saving environment variables to database:', error)
       throw error
     }
   }

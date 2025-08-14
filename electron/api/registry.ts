@@ -1,5 +1,5 @@
 /**
- * API Route Registry - Single Source of Truth
+ * API Route Registry
  * 
  * This file provides a flat, declarative registry of all API routes.
  * It serves as the single source of truth for API routing, eliminating
@@ -7,12 +7,10 @@
  */
 
 import * as systemHandlers from '../handlers/system-handler.js';
-import * as claudeCliHandlers from '../handlers/claude-cli-handler.js';
 import * as terminalHandlers from '../handlers/terminal-handler.js';
 import * as projectHandlers from '../handlers/project-management-handler.js';
 import * as settingsHandlers from '../handlers/settings-handler.js';
 import * as usageHandlers from '../handlers/usage-analytics-handler.js';
-import * as mcpHandlers from '../handlers/mcp-handler.js';
 import * as workspaceHandlers from '../handlers/workspace-handler.js';
 
 /**
@@ -32,6 +30,17 @@ export const apiRegistry: ApiRoute[] = [
   // System utilities - top-level functions
   { channel: 'ping', method: '', handler: systemHandlers.ping },
   { channel: 'getPlatform', method: '', handler: systemHandlers.getPlatform },
+  { channel: 'openExternal', method: '', handler: systemHandlers.openExternal },
+
+    // Project handlers
+  { channel: 'project', method: 'openFolder', handler: projectHandlers.openFolder },
+  { channel: 'project', method: 'listProjects', handler: projectHandlers.listProjects },
+  { channel: 'project', method: 'getClaudeProjectImportCandidates', handler: projectHandlers.getClaudeProjectImportCandidates },
+  { channel: 'project', method: 'importClaudeProjects', handler: projectHandlers.importClaudeProjects },
+
+  // Workspace handlers
+  { channel: 'workspace', method: 'load', handler: workspaceHandlers.load },
+  { channel: 'workspace', method: 'save', handler: workspaceHandlers.save },
 
   // Terminal handlers
   { channel: 'terminal', method: 'create', handler: terminalHandlers.createTerminal },
@@ -40,25 +49,9 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'terminal', method: 'close', handler: terminalHandlers.closeTerminal },
   { channel: 'terminal', method: 'registerWebContents', handler: terminalHandlers.registerWebContents },
 
-  // Claude CLI handlers
-  { channel: 'claudeCli', method: 'getBinaryPath', handler: claudeCliHandlers.getBinaryPath },
-  { channel: 'claudeCli', method: 'setBinaryPath', handler: claudeCliHandlers.setBinaryPath },
-  { channel: 'claudeCli', method: 'getInfo', handler: claudeCliHandlers.getInfo },
-  { channel: 'claudeCli', method: 'executeCommand', handler: claudeCliHandlers.executeCommand },
-
-  // Settings handlers
-  { channel: 'settings', method: 'getClaudeSettings', handler: settingsHandlers.getClaudeSettings },
-  { channel: 'settings', method: 'saveClaudeSettings', handler: settingsHandlers.saveClaudeSettings },
-
-  // MCP handlers
-  { channel: 'mcp', method: 'list', handler: mcpHandlers.list },
-  { channel: 'mcp', method: 'clearCache', handler: mcpHandlers.clearCache },
-  { channel: 'mcp', method: 'add', handler: mcpHandlers.add },
-  { channel: 'mcp', method: 'remove', handler: mcpHandlers.remove },
-  { channel: 'mcp', method: 'testConnection', handler: mcpHandlers.testConnection },
-  { channel: 'mcp', method: 'addFromClaudeDesktop', handler: mcpHandlers.addFromClaudeDesktop },
-  { channel: 'mcp', method: 'addJson', handler: mcpHandlers.addJson },
-  { channel: 'mcp', method: 'serve', handler: mcpHandlers.serve },
+  // Environment variables handlers
+  { channel: 'settings', method: 'getEnvironmentVariables', handler: settingsHandlers.getEnvironmentVariables },
+  { channel: 'settings', method: 'saveEnvironmentVariables', handler: settingsHandlers.saveEnvironmentVariables },
 
   // Usage analytics handlers
   { channel: 'usage', method: 'createEntry', handler: usageHandlers.createEntry },
@@ -67,21 +60,4 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'usage', method: 'getByDateRange', handler: usageHandlers.getByDateRange },
   { channel: 'usage', method: 'clearCache', handler: usageHandlers.clearCache },
   { channel: 'usage', method: 'getCacheStats', handler: usageHandlers.getCacheStats },
-
-  // Project management handlers
-  { channel: 'projectManagement', method: 'openFolder', handler: projectHandlers.openFolder },
-  { channel: 'projectManagement', method: 'listProjects', handler: projectHandlers.listProjects },
-  { channel: 'projectManagement', method: 'createProject', handler: projectHandlers.createProject },
-  { channel: 'projectManagement', method: 'updateProject', handler: projectHandlers.updateProject },
-  { channel: 'projectManagement', method: 'deleteProject', handler: projectHandlers.deleteProject },
-  { channel: 'projectManagement', method: 'openProject', handler: projectHandlers.openProject },
-  { channel: 'projectManagement', method: 'getClaudeProjectImportCandidates', handler: projectHandlers.getClaudeProjectImportCandidates },
-  { channel: 'projectManagement', method: 'importClaudeProjects', handler: projectHandlers.importClaudeProjects },
-  { channel: 'projectManagement', method: 'getProjectSessions', handler: projectHandlers.getProjectSessions },
-  { channel: 'projectManagement', method: 'getProjectStats', handler: projectHandlers.getProjectStats },
-
-  // Workspace handlers
-  { channel: 'workspace', method: 'load', handler: workspaceHandlers.load },
-  { channel: 'workspace', method: 'save', handler: workspaceHandlers.save },
-  { channel: 'workspace', method: 'listProjects', handler: workspaceHandlers.listProjects },
 ];

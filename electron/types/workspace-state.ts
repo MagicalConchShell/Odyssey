@@ -28,15 +28,3 @@ export interface WorkspaceState {
   lastSaved: number;
   version: string; // For future migration support
 }
-
-
-/**
- * Project workspace metadata
- */
-export interface ProjectWorkspaceMeta {
-  projectPath: string;
-  projectHash: string;
-  lastModified: number;
-  terminalCount: number;
-  activeTerminalId: string | null;
-}

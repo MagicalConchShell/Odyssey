@@ -8,11 +8,9 @@ type View =
   | "welcome"
   | "settings" 
   | "usage-dashboard"
-  | "mcp"
   | "project-workspace"
   | "editor"
   | "claude-editor"
-  | "claude-file-editor"
 
 interface TopbarProps {
   onSettingsClick: () => void

@@ -1,17 +1,9 @@
-import { dialog, IpcMainInvokeEvent } from 'electron';
-import { readdir, stat } from 'fs/promises';
-import { join } from 'path';
-import { homedir } from 'os';
-import { dbManager } from '../services/database-service.js';
-import {
-  Project,
-  Session,
-  ProjectStats,
-  ProjectCreateRequest,
-  ProjectUpdateRequest,
-  ClaudeProjectImportCandidate
-} from '../types/project.js';
-
+import {dialog, IpcMainInvokeEvent} from 'electron';
+import {readdir, stat} from 'fs/promises';
+import {join} from 'path';
+import {homedir} from 'os';
+import {dbManager} from '../services/database-service.js';
+import {ClaudeProjectImportCandidate, Project, ProjectStats} from '../types/project.js';
 
 
 // Generate unique project ID
@@ -309,64 +301,10 @@ export async function listProjects(_event: IpcMainInvokeEvent): Promise<Project[
 }
 
 /**
- * Create a new project
- */
-export async function createProject(_event: IpcMainInvokeEvent, request: ProjectCreateRequest): Promise<Project> {
-  // Validate path exists
-  if (!(await validateWorkingDirectory(request.path))) {
-    throw new Error('Invalid project path');
-  }
-
-  // Check if project already exists
-  const existingProject = dbManager.getProjectByPath(request.path);
-  if (existingProject) {
-    throw new Error('Project already exists');
-  }
-
-  const project = dbManager.createProject({
-    id: generateProjectId(),
-    name: request.name,
-    path: request.path,
-    type: request.type || 'manual',
-    last_opened: Date.now(),
-    is_pinned: false,
-    tags: request.tags,
-    claude_project_id: request.claude_project_id
-  });
-
-  return project;
-}
-
-/**
- * Update project
- */
-export async function updateProject(_event: IpcMainInvokeEvent, id: string, request: ProjectUpdateRequest): Promise<Project> {
-  const project = dbManager.updateProject(id, request);
-  if (!project) {
-    throw new Error('Project not found');
-  }
-  return project;
-}
-
-/**
  * Delete project
  */
 export async function deleteProject(_event: IpcMainInvokeEvent, id: string): Promise<boolean> {
-  const success = dbManager.deleteProject(id);
-  return success;
-}
-
-/**
- * Open project (updates last opened time)
- */
-export async function openProject(_event: IpcMainInvokeEvent, id: string): Promise<Project> {
-  const project = dbManager.updateProject(id, {
-    last_opened: Date.now()
-  });
-  if (!project) {
-    throw new Error('Project not found');
-  }
-  return project;
+  return dbManager.deleteProject(id);
 }
 
 /**
@@ -419,73 +357,5 @@ export async function importClaudeProjects(_event: IpcMainInvokeEvent, claudePro
  * Get Claude project import candidates
  */
 export async function getClaudeProjectImportCandidates(_event: IpcMainInvokeEvent): Promise<ClaudeProjectImportCandidate[]> {
-  const candidates = await scanClaudeProjectsForImport();
-  return candidates;
+  return await scanClaudeProjectsForImport();
 }
-
-/**
- * Get all sessions for a specific project (legacy support)
- */
-export async function getProjectSessions(_event: IpcMainInvokeEvent, projectId: string): Promise<Session[]> {
-  try {
-    const projectPath = join(homedir(), '.claude', 'projects', projectId);
-    const entries = await readdir(projectPath, { withFileTypes: true });
-
-    // Get the actual project path from JSONL files
-    const realProjectPath = await getProjectPathFromSessions(projectPath);
-
-    const sessions = await Promise.all(
-      entries
-        .filter(entry => entry.name.endsWith('.jsonl'))
-        .map(async entry => {
-          try {
-            const sessionFilePath = join(projectPath, entry.name);
-            const stats = await stat(sessionFilePath);
-
-            // Get file creation time, fallback to modification time
-            const createdAt = (stats.birthtime || stats.mtime).toISOString();
-
-            return {
-              id: entry.name.replace('.jsonl', ''),
-              name: entry.name,
-              path: sessionFilePath,
-              project_path: realProjectPath || projectPath, // Include actual project path
-              created_at: createdAt
-            };
-          } catch (error) {
-            console.error(`Failed to get stats for session ${entry.name}:`, error);
-            return {
-              id: entry.name.replace('.jsonl', ''),
-              name: entry.name,
-              path: join(projectPath, entry.name),
-              project_path: realProjectPath || projectPath, // Include actual project path
-              created_at: new Date().toISOString() // fallback to current time
-            };
-          }
-        })
-    );
-
-    return sessions;
-  } catch (error) {
-    console.error('Failed to list project sessions:', error);
-    return [];
-  }
-}
-
-
-
-
-
-
-
-
-/**
- * Register all project management related IPC handlers
- */
-
-// Export utility functions for use in other modules
-export { 
-  resolveProjectPath, 
-  validateWorkingDirectory, 
-  getProjectPathFromSessions 
-};

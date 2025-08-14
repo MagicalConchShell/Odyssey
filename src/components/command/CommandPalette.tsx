@@ -9,7 +9,6 @@ import {
   MessageSquare, 
   Search,
   FileText,
-  Network,
   Pin,
   Folder
 } from 'lucide-react'
@@ -39,12 +38,12 @@ interface Project {
 }
 
 interface CommandPaletteProps {
-  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor') => void
+  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor') => void
   onSelectProject: (project: Project) => void
   onOpenFolder: () => void
   onImportProjects: () => void
   onRefresh?: (refreshFunction: () => Promise<void>) => void
-  currentView?: 'welcome' | 'settings' | 'usage-dashboard' | 'mcp' | 'project-workspace' | 'editor' | 'claude-editor' | 'claude-file-editor'
+  currentView?: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor'
   className?: string
 }
 
@@ -75,7 +74,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const loadProjects = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await window.electronAPI.projectManagement.listProjects()
+      const response = await window.electronAPI.project.listProjects()
       
       if (response.success && Array.isArray(response.data)) {
         // Filter out any invalid projects
@@ -168,15 +167,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       group: 'General',
       action: () => onNavigate('editor'),
       keywords: ['claude', 'md', 'editor', 'markdown', 'config', 'system', 'prompt']
-    },
-    {
-      id: 'mcp',
-      label: 'MCP Server Management',
-      description: 'Manage Model Context Protocol servers',
-      icon: <Network className="h-4 w-4" />,
-      group: 'General',
-      action: () => onNavigate('mcp'),
-      keywords: ['mcp', 'server', 'protocol', 'model', 'context']
     },
 
     // Project Management Commands

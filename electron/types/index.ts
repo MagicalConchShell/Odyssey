@@ -13,6 +13,4 @@ export * from './workspace-state.js';
 
 // Feature-specific types
 export * from './project.js';
-export * from './mcp.js';
-export * from './claude.js';
 export * from './usage.js';

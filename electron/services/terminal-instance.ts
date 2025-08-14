@@ -1,9 +1,5 @@
 /**
- * TerminalInstance - Core terminal representation with persistence support
- * 
- * This implements the SOTA architecture from terminal_persistence_refactor_plan_v2.md
- * Each instance represents a single terminal with its complete state including output history.
- * Enhanced with shell integration for real-time CWD tracking via OSC sequences.
+ * TerminalInstance
  */
 
 import { EventEmitter } from 'events'
@@ -17,13 +13,9 @@ export interface TerminalInstanceOptions {
   cols?: number
   rows?: number
   title?: string
+  customEnv?: Record<string, string>
 }
 
-// SerializedTerminalInstance interface removed - serialization is handled by frontend xterm-addon-serialize
-
-/**
- * TerminalInstance - Single source of truth for terminal state
- */
 export class TerminalInstance extends EventEmitter {
   public readonly id: string
   public title: string
@@ -57,12 +49,10 @@ export class TerminalInstance extends EventEmitter {
     this.shell = options.shell || defaultShell
 
     // Create PTY process through PtyService
-    ptyService.create(this.id, this.shell, this.cwd, this.cols, this.rows)
+    ptyService.create(this.id, this.shell, this.cwd, this.cols, this.rows, options.customEnv)
 
     // Set up event handlers for PtyService events
     this.setupEventHandlers()
-
-    console.log(`[TerminalInstance] Created ${this.id} with shell ${this.shell} in ${this.cwd}`)
   }
 
   /**
@@ -78,7 +68,6 @@ export class TerminalInstance extends EventEmitter {
 
     const onExit = ({ id, exitCode }: { id: string; exitCode: number }) => {
       if (id === this.id) {
-        console.log(`[TerminalInstance] PTY ${this.id} exited with code ${exitCode}`)
         this.isAlive = false
         this.emit('exit', { id: this.id, exitCode })
         
@@ -93,15 +82,10 @@ export class TerminalInstance extends EventEmitter {
     ptyService.on('exit', onExit)
   }
 
-  /**
-   * Core data handling logic - processes PTY output and manages command history
-   * This is where OSC sequence parsing for command tracking happens
-   */
   private onData(data: string): void {
     // Always forward all raw data to the frontend for rendering
     this.emit('data', { id: this.id, data })
   }
-
 
 
   /**
@@ -149,49 +133,6 @@ export class TerminalInstance extends EventEmitter {
   }
 
   /**
-   * Update current working directory (called via OSC sequence from frontend)
-   */
-  updateCurrentCwd(newCwd: string): void {
-    if (newCwd !== this.currentCwd) {
-      const oldCwd = this.currentCwd
-      this.currentCwd = newCwd
-      console.log(`[TerminalInstance] CWD updated for ${this.id}: ${oldCwd} -> ${newCwd}`)
-      this.emit('cwd-changed', { id: this.id, oldCwd, newCwd })
-    }
-  }
-
-  /**
-   * Update running process (for future process tracking enhancement)
-   */
-  updateRunningProcess(newProcess: string | null): void {
-    if (newProcess !== this.runningProcess) {
-      const oldProcess = this.runningProcess
-      this.runningProcess = newProcess
-      console.log(`[TerminalInstance] Running process updated for ${this.id}: ${oldProcess || 'none'} -> ${newProcess || 'none'}`)
-      this.emit('process-changed', { id: this.id, oldProcess, newProcess })
-    }
-  }
-
-
-
-
-
-
-  /**
-   * Check if PTY process is still alive
-   */
-  getIsAlive(): boolean {
-    return this.isAlive
-  }
-
-  /**
-   * Get current terminal dimensions
-   */
-  getDimensions(): { cols: number; rows: number } {
-    return { cols: this.cols, rows: this.rows }
-  }
-
-  /**
    * Get current working directory (dynamic)
    */
   getCurrentCwd(): string {
@@ -204,9 +145,4 @@ export class TerminalInstance extends EventEmitter {
   getRunningProcess(): string | null {
     return this.runningProcess
   }
-
-  // toJSON method removed - terminal serialization is handled by frontend xterm-addon-serialize
-
-  // fromSerialized method removed - terminal restoration is handled by frontend xterm-addon-serialize
-
 }

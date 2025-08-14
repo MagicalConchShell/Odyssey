@@ -5,6 +5,8 @@
  * between the main process and renderer process.
  */
 
+import * as electron from "electron";
+
 /**
  * Standard API response format for all IPC handlers
  * Combines the best aspects of the previous IpcResponse and ApiResponse types
@@ -15,24 +17,6 @@ export interface ApiResponse<T = any> {
   error?: string;
   errorCode?: string; // For error categorization and handling
   meta?: any; // For additional metadata like recovery suggestions
-}
-
-/**
- * File operation response format
- */
-export interface FileResponse {
-  success: boolean;
-  content?: string;
-  error?: string;
-}
-
-/**
- * Screenshot operation response format
- */
-export interface ScreenshotResponse {
-  success: boolean;
-  path?: string;
-  error?: string;
 }
 
 /**
@@ -48,6 +32,6 @@ export interface HandlerConfig {
  * Handler function type with proper typing
  */
 export type HandlerFunction<TInput extends any[] = any[], TOutput = any> = (
-  event: Electron.IpcMainInvokeEvent,
+  event: electron.IpcMainInvokeEvent,
   ...args: TInput
 ) => Promise<ApiResponse<TOutput>>;
