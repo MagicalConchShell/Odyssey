@@ -1,11 +1,9 @@
 import {useState, useEffect, useCallback} from 'react'
-import {ArrowLeft} from 'lucide-react'
 
 // Import components
 import {ProjectWorkspace} from '@/components/project'
 import {Project} from '@/components/project'
 import {Settings} from '@/components/Settings'
-import {UsageDashboard} from '@/components/UsageDashboard'
 import {WelcomeScreen} from '@/components/WelcomeScreen'
 import {Topbar} from '@/components/layout'
 import {ThemeProvider} from '@/components/theme-provider'
@@ -16,10 +14,7 @@ import {useAppStore} from '@/store'
 type View =
   "welcome"
   | "settings"
-  | "usage-dashboard"
   | "project-workspace"
-  | "editor"
-  | "claude-editor"
 
 function App() {
   const [view, setView] = useState<View>("welcome")
@@ -185,12 +180,6 @@ function App() {
         return renderProjectWorkspaceView()
       case "settings":
         return renderSettingsView()
-      case "usage-dashboard":
-        return renderUsageView()
-      case "editor":
-        return renderEditorView()
-      case "claude-editor":
-        return renderClaudeEditorView()
       default:
         return renderWelcomeView()
     }
@@ -218,66 +207,8 @@ function App() {
     <Settings onBack={() => setView("welcome")}/>
   )
 
-  const renderUsageView = () => (
-    <UsageDashboard onBack={() => setView("welcome")}/>
-  )
 
 
-  const renderEditorView = () => (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <button
-            onClick={() => setView("welcome")}
-            className="mb-4 px-3 py-2 text-sm bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors flex items-center"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4"/>
-            Back to Home
-          </button>
-          <h1 className="text-3xl font-bold">CLAUDE.md Editor</h1>
-          <p className="text-muted-foreground">Edit your CLAUDE.md files</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div
-            className="p-6 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-            onClick={() => setView("claude-editor")}
-          >
-            <h3 className="text-lg font-semibold mb-2">Global CLAUDE.md</h3>
-            <p className="text-sm text-muted-foreground">
-              Edit your global Claude Code system prompt (~/.claude/CLAUDE.md)
-            </p>
-          </div>
-
-          <div
-            className="p-6 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-            onClick={() => setView("welcome")}
-          >
-            <h3 className="text-lg font-semibold mb-2">Project CLAUDE.md Files</h3>
-            <p className="text-sm text-muted-foreground">
-              Edit project-specific CLAUDE.md files from your projects
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderClaudeEditorView = () => (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center py-12">
-          <p className="text-lg text-muted-foreground">Editor functionality has been removed</p>
-          <button
-            onClick={() => setView("welcome")}
-            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-          >
-            Go to Welcome
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 
 
   return (

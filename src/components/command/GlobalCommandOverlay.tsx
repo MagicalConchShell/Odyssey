@@ -6,10 +6,7 @@ import { Project } from '@/store'
 type View = 
   | "welcome"
   | "settings" 
-  | "usage-dashboard"
   | "project-workspace"
-  | "editor"
-  | "claude-editor"
 
 interface GlobalCommandOverlayProps {
   isOpen: boolean

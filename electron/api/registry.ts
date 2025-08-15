@@ -8,9 +8,8 @@
 
 import * as systemHandlers from '../handlers/system-handler.js';
 import * as terminalHandlers from '../handlers/terminal-handler.js';
-import * as projectHandlers from '../handlers/project-management-handler.js';
+import * as projectHandlers from '../handlers/project-handler.js';
 import * as settingsHandlers from '../handlers/settings-handler.js';
-import * as usageHandlers from '../handlers/usage-analytics-handler.js';
 import * as workspaceHandlers from '../handlers/workspace-handler.js';
 
 /**
@@ -35,7 +34,7 @@ export const apiRegistry: ApiRoute[] = [
     // Project handlers
   { channel: 'project', method: 'openFolder', handler: projectHandlers.openFolder },
   { channel: 'project', method: 'listProjects', handler: projectHandlers.listProjects },
-  { channel: 'project', method: 'getClaudeProjectImportCandidates', handler: projectHandlers.getClaudeProjectImportCandidates },
+  { channel: 'project', method: 'scanClaudeProjects', handler: projectHandlers.scanClaudeProjects },
   { channel: 'project', method: 'importClaudeProjects', handler: projectHandlers.importClaudeProjects },
 
   // Workspace handlers
@@ -53,11 +52,4 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'settings', method: 'getEnvironmentVariables', handler: settingsHandlers.getEnvironmentVariables },
   { channel: 'settings', method: 'saveEnvironmentVariables', handler: settingsHandlers.saveEnvironmentVariables },
 
-  // Usage analytics handlers
-  { channel: 'usage', method: 'createEntry', handler: usageHandlers.createEntry },
-  { channel: 'usage', method: 'getAllEntries', handler: usageHandlers.getAllEntries },
-  { channel: 'usage', method: 'getStats', handler: usageHandlers.getStats },
-  { channel: 'usage', method: 'getByDateRange', handler: usageHandlers.getByDateRange },
-  { channel: 'usage', method: 'clearCache', handler: usageHandlers.clearCache },
-  { channel: 'usage', method: 'getCacheStats', handler: usageHandlers.getCacheStats },
 ];

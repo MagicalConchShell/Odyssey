@@ -7,5 +7,6 @@ export * from './database-service.js';
 // PTY Service
 export * from './pty-service.js';
 
-// Usage Analytics Service
-export * from './usage-analytics-service.js';
+// Project Service
+export * from './project-service.js';
+

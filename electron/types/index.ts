@@ -13,4 +13,3 @@ export * from './workspace-state.js';
 
 // Feature-specific types
 export * from './project.js';
-export * from './usage.js';

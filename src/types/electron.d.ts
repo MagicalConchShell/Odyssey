@@ -1,32 +1,15 @@
 // Import backend types for consistency
 export type {
   Project,
-  UsageEntry,
-  UsageStats,
-  ModelUsageStats,
-  ProjectUsageStats,
-  DateUsageStats,
   ApiResponse,
-  GitStatusResult,
-  ClaudeProjectImportCandidate,
+  ClaudeProject,
 } from '../../electron/types';
 
 
 // Import workspace state types
 export type {
   WorkspaceState,
-  ProjectWorkspaceMeta,
 } from '../../electron/types/workspace-state';
-
-
-export interface MessageDebugInfo {
-  component: string;
-  action: string;
-  timestamp?: number | string;
-  messageType?: string;
-  processingId?: string;
-  details?: Record<string, any>;
-}
 
 declare global {
   interface Window {
@@ -50,25 +33,12 @@ declare global {
       removeListener?: (channel: string, listener: (...args: any[]) => void) => void;
       removeAllListeners?: (channel: string) => void;
 
-
-
       // Environment variables handlers
       settings: {
         getEnvironmentVariables: () => Promise<ApiResponse<Record<string, string>>>;
         saveEnvironmentVariables: (env: Record<string, string>) => Promise<ApiResponse<void>>;
       };
 
-
-
-      // Usage analytics handlers
-      usage: {
-        createEntry: (entry: Omit<UsageEntry, 'id' | 'created_at'>) => Promise<ApiResponse<UsageEntry>>;
-        getAllEntries: () => Promise<ApiResponse<UsageEntry[]>>;
-        getStats: () => Promise<ApiResponse<UsageStats>>;
-        getByDateRange: (startDate: string, endDate: string) => Promise<ApiResponse<UsageStats>>;
-        clearCache: () => Promise<ApiResponse<void>>;
-        getCacheStats: () => Promise<ApiResponse<any>>;
-      };
 
 
       // Project handlers (pure data operations)
@@ -78,9 +48,8 @@ declare global {
         listProjects: () => Promise<ApiResponse<Project[]>>;
         
         // Claude project import functionality  
-        getClaudeProjectImportCandidates: () => Promise<ApiResponse<ClaudeProjectImportCandidate[]>>;
+        scanClaudeProjects: () => Promise<ApiResponse<ClaudeProject[]>>;
         importClaudeProjects: (claudeProjectIds: string[]) => Promise<ApiResponse<{ imported: number, failed: number }>>;
-        
       };
 
       // Business-oriented workspace operations

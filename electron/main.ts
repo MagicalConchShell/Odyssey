@@ -1,7 +1,6 @@
 import {app, BrowserWindow, ipcMain, session} from 'electron';
 import {join} from 'path';
 import {dbManager} from './services/database-service.js';
-import {usageDataCache} from './services/usage-analytics-service.js';
 import {cleanupHandlers} from './handlers/index.js';
 import {bootstrapApi} from './api/index.js';
 import {TerminalManagementService} from "./services/terminal-management-service";
@@ -137,8 +136,6 @@ app.on('before-quit', async () => {
   // Clean up database connection
   dbManager.close();
 
-  // Clear usage data cache
-  usageDataCache.clearCache();
 
   // Clean up IPC handlers
   cleanupHandlers(ipcMain);

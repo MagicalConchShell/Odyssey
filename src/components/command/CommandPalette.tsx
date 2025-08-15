@@ -2,13 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Settings, 
-  BarChart3, 
+ 
   FolderOpen, 
   Download, 
   BookOpen, 
   MessageSquare, 
   Search,
-  FileText,
   Pin,
   Folder
 } from 'lucide-react'
@@ -38,12 +37,12 @@ interface Project {
 }
 
 interface CommandPaletteProps {
-  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor') => void
+  onNavigate: (view: 'welcome' | 'settings' | 'project-workspace') => void
   onSelectProject: (project: Project) => void
   onOpenFolder: () => void
   onImportProjects: () => void
   onRefresh?: (refreshFunction: () => Promise<void>) => void
-  currentView?: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor'
+  currentView?: 'welcome' | 'settings' | 'project-workspace'
   className?: string
 }
 
@@ -149,25 +148,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       action: () => onNavigate('settings'),
       keywords: ['settings', 'config', 'preferences', 'options']
     },
-    {
-      id: 'usage',
-      label: 'View Usage Statistics',
-      description: 'View token usage and API statistics dashboard',
-      icon: <BarChart3 className="h-4 w-4" />,
-      shortcut: '⌘U',
-      group: 'General',
-      action: () => onNavigate('usage-dashboard'),
-      keywords: ['usage', 'statistics', 'stats', 'dashboard', 'tokens', 'api']
-    },
-    {
-      id: 'claude-editor',
-      label: 'CLAUDE.md Editor',
-      description: 'Edit CLAUDE.md configuration files',
-      icon: <FileText className="h-4 w-4" />,
-      group: 'General',
-      action: () => onNavigate('editor'),
-      keywords: ['claude', 'md', 'editor', 'markdown', 'config', 'system', 'prompt']
-    },
 
     // Project Management Commands
     {
@@ -198,7 +178,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       icon: <BookOpen className="h-4 w-4" />,
       shortcut: 'F1',
       group: 'Help',
-      action: () => handleExternalLink('https://docs.anthropic.com/en/docs/claude-code'),
+      action: () => handleExternalLink('https://github.com/MagicalConchShell/Odyssey'),
       keywords: ['docs', 'documentation', 'help', 'guide', 'manual']
     },
     {
@@ -207,7 +187,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       description: 'Report issues or submit feature requests',
       icon: <MessageSquare className="h-4 w-4" />,
       group: 'Help',
-      action: () => handleExternalLink('https://github.com/anthropics/claude-code/issues'),
+      action: () => handleExternalLink('https://github.com/MagicalConchShell/Odyssey/issues'),
       keywords: ['feedback', 'issue', 'bug', 'report', 'feature', 'request']
     }
   ]

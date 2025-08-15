@@ -22,7 +22,6 @@ export const useAppStore = create<AppState>()(
         partialize: (state) => ({
           currentProject: state.currentProject,
           projectPath: state.projectPath,
-          projectSettings: state.projectSettings,
           sidebarTab: state.sidebarTab,
           sidebarCollapsed: state.sidebarCollapsed,
           terminalMode: state.terminalMode,
@@ -43,9 +42,6 @@ export const useHasTerminals = () => {
   return useAppStore((state) => state.terminals.length > 0)
 }
 
-// The persist middleware now automatically handles state persistence
-// No manual initialization needed
-
 // Re-export types for convenience
-export type { Project, ProjectSettings } from './projectSlice'
+export type { Project } from './projectSlice'
 export type { Terminal, CreateTerminalOptions, TerminalMode } from '@/types/terminal'

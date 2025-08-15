@@ -9,22 +9,15 @@ import { Button } from './ui/button'
 import { toast } from "sonner"
 import { Project } from '@/store'
 
-interface ClaudeProjectImportCandidate {
+interface ClaudeProject {
   name: string
   path: string
   claude_project_id: string
-  session_count: number
-  last_modified: number
-  stats: {
-    fileCount: number
-    totalSize: number
-    lastModified: string
-  }
 }
 
 interface WelcomeScreenProps {
   onSelectProject: (project: Project) => void
-  onNavigate: (view: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor') => void
+  onNavigate: (view: 'welcome' | 'settings' | 'project-workspace') => void
   className?: string
 }
 
@@ -34,14 +27,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   className = '',
 }) => {
   const [showImportDialog, setShowImportDialog] = useState(false)
-  const [importCandidates, setImportCandidates] = useState<ClaudeProjectImportCandidate[]>([])
+  const [importCandidates, setImportCandidates] = useState<ClaudeProject[]>([])
   const [importLoading, setImportLoading] = useState(false)
   const [importPhase, setImportPhase] = useState<'scanning' | 'importing'>('scanning')
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set())
   const [refreshFunction, setRefreshFunction] = useState<(() => Promise<void>) | null>(null)
 
   // Handle navigation to different app views
-  const handleNavigate = (view: 'welcome' | 'settings' | 'usage-dashboard' | 'project-workspace' | 'editor' | 'claude-editor') => {
+  const handleNavigate = (view: 'welcome' | 'settings' | 'project-workspace') => {
     onNavigate(view)
   }
 
@@ -70,11 +63,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     try {
       setImportLoading(true)
       setImportPhase('scanning')
-      const response = await window.electronAPI.project.getClaudeProjectImportCandidates()
+      const response = await window.electronAPI.project.scanClaudeProjects()
       if (response.success) {
         setImportCandidates(response.data || [])
         // Pre-select all candidates
-        setSelectedCandidates(new Set(response.data?.map((c: ClaudeProjectImportCandidate) => c.claude_project_id) || []))
+        setSelectedCandidates(new Set(response.data?.map((c: ClaudeProject) => c.claude_project_id) || []))
       } else {
         throw new Error(response.error || 'Failed to load import candidates')
       }
@@ -254,7 +247,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                           <p className="text-sm font-medium text-foreground">{candidate.name}</p>
                           <p className="text-xs text-muted-foreground truncate">{candidate.path}</p>
                           <p className="text-xs text-muted-foreground">
-                            {candidate.session_count} sessions • {candidate.stats.fileCount} files
+                            Claude project
                           </p>
                         </div>
                       </div>

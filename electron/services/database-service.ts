@@ -4,18 +4,6 @@ import {homedir} from 'os'
 import {existsSync, mkdirSync} from 'fs'
 
 
-export interface UsageEntry {
-  id?: number
-  timestamp: string
-  model: string
-  input_tokens: number
-  output_tokens: number
-  cache_creation_tokens: number
-  cache_read_tokens: number
-  cost: number
-  session_id: string
-  project_path: string
-}
 
 export interface Project {
   id: string
@@ -32,7 +20,7 @@ export interface Project {
 
 /**
  * Manages SQLite database operations for Odyssey.
- * Handles usage data tracking.
+ * Handles project management and environment variables.
  * Uses better-sqlite3 with WAL mode for better performance and concurrency.
  */
 class DatabaseManager {
@@ -65,7 +53,7 @@ class DatabaseManager {
 
   /**
    * Creates all required database tables with proper schemas.
-   * Includes tables for usage data tracking.
+   * Includes tables for project management and environment variables.
    */
   private createTables(): void {
     if (!this.db) throw new Error('Database not initialized')
@@ -87,23 +75,6 @@ class DatabaseManager {
         )
     `)
 
-    // Create usage_data table
-    this.db.exec(`
-        CREATE TABLE IF NOT EXISTS usage_data
-        (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            model TEXT NOT NULL,
-            input_tokens INTEGER NOT NULL DEFAULT 0,
-            output_tokens INTEGER NOT NULL DEFAULT 0,
-            cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-            cost REAL NOT NULL DEFAULT 0.0,
-            session_id TEXT NOT NULL,
-            project_path TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    `)
 
     // Create environment_variables table
     this.db.exec(`
@@ -119,8 +90,6 @@ class DatabaseManager {
 
     // Create indexes for better performance
     this.db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_usage_data_session_id ON usage_data(session_id);
-        CREATE INDEX IF NOT EXISTS idx_usage_data_timestamp ON usage_data(timestamp);
         CREATE INDEX IF NOT EXISTS idx_projects_last_opened ON projects(last_opened);
         CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type);
         CREATE INDEX IF NOT EXISTS idx_environment_variables_key ON environment_variables(key);
@@ -145,44 +114,6 @@ class DatabaseManager {
     }
   }
 
-  // Usage data operations
-  createUsageEntry(entry: Omit<UsageEntry, 'id' | 'created_at'>): UsageEntry {
-    if (!this.db) throw new Error('Database not initialized')
-
-    const stmt = this.db.prepare(`
-        INSERT INTO usage_data (timestamp, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-                                cost, session_id, project_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
-    const result = stmt.run(
-      entry.timestamp,
-      entry.model,
-      entry.input_tokens,
-      entry.output_tokens,
-      entry.cache_creation_tokens,
-      entry.cache_read_tokens,
-      entry.cost,
-      entry.session_id,
-      entry.project_path
-    )
-
-    return this.getUsageEntry(result.lastInsertRowid as number)!
-  }
-
-  getUsageEntry(id: number): UsageEntry | null {
-    if (!this.db) throw new Error('Database not initialized')
-
-    const stmt = this.db.prepare('SELECT * FROM usage_data WHERE id = ?')
-    return stmt.get(id) as UsageEntry | null
-  }
-
-  getAllUsageEntries(): UsageEntry[] {
-    if (!this.db) throw new Error('Database not initialized')
-
-    const stmt = this.db.prepare('SELECT * FROM usage_data ORDER BY timestamp DESC')
-    return stmt.all() as UsageEntry[]
-  }
 
   // Project operations
   createProject(project: Omit<Project, 'created_at' | 'updated_at'>): Project {

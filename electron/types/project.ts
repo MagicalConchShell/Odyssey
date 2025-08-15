@@ -19,22 +19,10 @@ export interface Project {
 }
 
 /**
- * Claude project import candidate
+ * Claude project discovered from .claude/projects directory
  */
-export interface ClaudeProjectImportCandidate {
+export interface ClaudeProject {
   name: string;
   path: string;
   claude_project_id: string;
-  session_count: number;
-  last_modified: number;
-  stats: ProjectStats;
-}
-
-/**
- * Project statistics and metadata
- */
-export interface ProjectStats {
-  fileCount: number;
-  totalSize: number;
-  lastModified: string;
 }

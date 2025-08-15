@@ -1,9 +1,5 @@
 /**
- * Terminal Component - Pure XTerm + WebGL Rendering
- *
- * This implements the SOTA architecture from terminal_architecture_v1.md
- * Pure component that only handles XTerm rendering - no session management
- * Refactored to use specialized hooks for cleaner separation of concerns
+ * Terminal Component
  */
 
 import React, {useEffect, useRef, useCallback} from 'react'
@@ -131,27 +127,15 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = '', i
     let needsEventHandlers = true
 
     if (instance) {
-      terminalLogger.debug('Checking existing XTerm instance', {
-        terminalId,
-        hasDisposables: !!instance.disposables,
-        disposablesCount: instance.disposables?.length || 0,
-        isAttached: instance.isAttached
-      })
-
       // Check if this instance already has event handlers
       const hasExistingHandlers = instance.disposables && instance.disposables.length > 0
       if (hasExistingHandlers) {
-        terminalLogger.debug('Reusing existing XTerm instance with handlers', {terminalId})
         return instance
       } else {
-        terminalLogger.debug('Existing XTerm instance needs event handlers', {terminalId})
         terminal = instance.xterm
         needsEventHandlers = true
       }
     } else {
-      // Create new instance
-      terminalLogger.debug('Creating new XTerm instance', {terminalId})
-
       // Create terminal with theme
       terminal = new XTerminal({
         theme: terminalTheme[theme],
@@ -191,7 +175,6 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = '', i
       terminal.loadAddon(serializeAddon)
       try {
         terminal.loadAddon(webglAddon)
-        terminalLogger.debug('WebGL addon loaded', {terminalId})
       } catch (error) {
         terminalLogger.warn('WebGL addon failed to load, falling back to canvas', {terminalId, error})
       }
@@ -298,24 +281,18 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = '', i
           const terminalStates = (window as any)._odysseyTerminalStatesForRestore || {}
           if (terminalStates[terminalId]) {
             delete terminalStates[terminalId]
-            terminalLogger.debug('Cleared used terminal state from storage', {terminalId})
           }
-          
-          terminalLogger.info('✅ Terminal content restoration completed', {terminalId})
+
         } catch (error) {
           terminalLogger.error('Failed to restore terminal content', {terminalId, error})
         }
       }
-
-      // Event subscriptions are managed by terminalSlice - no need to handle here
-      // Terminal component focuses only on XTerm rendering and user interactions
 
       // Fit terminal to container immediately after attachment
       try {
         if (instance.fitAddon && instance.xterm && terminalRef.current) {
           instance.fitAddon.fit()
           const {cols, rows} = instance.xterm
-          terminalLogger.debug('Initial fit for terminal', {terminalId, cols, rows})
           resizeTerminal(terminalId, cols, rows)
         }
       } catch (error) {
@@ -340,17 +317,6 @@ export const Terminal: React.FC<TerminalProps> = ({terminalId, className = '', i
     }
     // ESLint disable: getTerminalInstance is stable from memoized hook
   }, [theme, terminalId])
-
-  // Cleanup on unmount - only dispose if terminal is being removed
-  useEffect(() => {
-    return () => {
-      // Note: We don't dispose XTerm instances here because they should persist
-      // across tab switches. Only dispose when the terminal is actually removed
-      // from the store (handled in removeTerminal action)
-      terminalLogger.debug(`Component unmounting`, {terminalId})
-    }
-  }, [terminalId])
-
 
   return (
     <div className={`terminal-container relative ${className}`}>
