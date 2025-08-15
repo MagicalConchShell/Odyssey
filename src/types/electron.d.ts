@@ -41,18 +41,18 @@ declare global {
 
 
 
-      // Project handlers (pure data operations)
+      // Project handlers
       project: {
-        // Pure database-driven project operations
         openFolder: () => Promise<ApiResponse<Project>>;
         listProjects: () => Promise<ApiResponse<Project[]>>;
+        deleteProject: (id: string) => Promise<ApiResponse<boolean>>;
         
         // Claude project import functionality  
         scanClaudeProjects: () => Promise<ApiResponse<ClaudeProject[]>>;
         importClaudeProjects: (claudeProjectIds: string[]) => Promise<ApiResponse<{ imported: number, failed: number }>>;
       };
 
-      // Business-oriented workspace operations
+      // Workspace operations
       workspace: {
         load: (projectId: string) => Promise<ApiResponse<{
           terminals: any[];

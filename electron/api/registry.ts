@@ -36,6 +36,7 @@ export const apiRegistry: ApiRoute[] = [
   { channel: 'project', method: 'listProjects', handler: projectHandlers.listProjects },
   { channel: 'project', method: 'scanClaudeProjects', handler: projectHandlers.scanClaudeProjects },
   { channel: 'project', method: 'importClaudeProjects', handler: projectHandlers.importClaudeProjects },
+  { channel: 'project', method: 'deleteProject', handler: projectHandlers.deleteProject },
 
   // Workspace handlers
   { channel: 'workspace', method: 'load', handler: workspaceHandlers.load },

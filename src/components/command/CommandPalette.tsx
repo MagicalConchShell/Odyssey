@@ -9,7 +9,8 @@ import {
   MessageSquare, 
   Search,
   Pin,
-  Folder
+  Folder,
+  Trash2
 } from 'lucide-react'
 
 import {
@@ -22,6 +23,18 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from '@/components/ui/command'
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 
 interface Project {
   id: string
@@ -55,6 +68,7 @@ interface CommandItem {
   group: string
   action: () => void
   keywords?: string[]
+  project?: Project // Add project reference for context menu
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
@@ -68,6 +82,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 }) => {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{
+    show: boolean
+    x: number
+    y: number
+    project: Project | null
+  }>({ show: false, x: 0, y: 0, project: null })
 
   // Load projects for recent projects commands
   const loadProjects = useCallback(async () => {
@@ -122,6 +145,86 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const handleExternalLink = useCallback((url: string) => {
     window.electronAPI.openExternal(url)
   }, [])
+
+  // Handle project deletion
+  const handleDeleteProject = useCallback((project: Project) => {
+    setProjectToDelete(project)
+    setDeleteDialogOpen(true)
+  }, [])
+
+  const confirmDeleteProject = useCallback(async () => {
+    if (!projectToDelete) return
+
+    try {
+      setDeleting(true)
+      const response = await window.electronAPI.project.deleteProject(projectToDelete.id)
+      
+      if (response.success) {
+        toast.success(`Project "${projectToDelete.name}" deleted`)
+        // Refresh project list
+        await loadProjects()
+      } else {
+        throw new Error(response.error || 'Failed to delete project')
+      }
+    } catch (err) {
+      console.error('Failed to delete project:', err)
+      toast.error(`Failed to delete project: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setDeleting(false)
+      setDeleteDialogOpen(false)
+      setProjectToDelete(null)
+    }
+  }, [projectToDelete, loadProjects])
+
+  const cancelDeleteProject = useCallback(() => {
+    setDeleteDialogOpen(false)
+    setProjectToDelete(null)
+  }, [])
+
+  // Handle context menu
+  const handleProjectContextMenu = useCallback((event: React.MouseEvent, project: Project) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setContextMenu({
+      show: true,
+      x: event.clientX,
+      y: event.clientY,
+      project
+    })
+  }, [])
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ show: false, x: 0, y: 0, project: null })
+  }, [])
+
+  const handleContextMenuDelete = useCallback(() => {
+    if (contextMenu.project) {
+      handleDeleteProject(contextMenu.project)
+    }
+    closeContextMenu()
+  }, [contextMenu.project, handleDeleteProject, closeContextMenu])
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (contextMenu.show) {
+        closeContextMenu()
+      }
+    }
+    
+    if (contextMenu.show) {
+      document.addEventListener('click', handleClickOutside)
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closeContextMenu()
+        }
+      })
+    }
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [contextMenu.show, closeContextMenu])
 
   // Define all commands
   const commands: CommandItem[] = [
@@ -209,7 +312,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       icon: project.is_pinned ? <Pin className="h-4 w-4 text-primary" /> : <Folder className="h-4 w-4" />,
       group: 'Recent Projects',
       action: () => handleProjectSelect(project),
-      keywords: [project.name, project.path, 'project', 'recent', 'folder']
+      keywords: [project.name, project.path, 'project', 'recent', 'folder'],
+      project: project // Add project reference for context menu
     }))
 
   // Combine all commands
@@ -262,6 +366,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     <CommandItem
                       key={command.id}
                       onSelect={() => command.action()}
+                      onContextMenu={command.project ? (e) => handleProjectContextMenu(e, command.project!) : undefined}
                       className="cursor-pointer"
                     >
                       <div className="flex items-center space-x-3 flex-1">
@@ -297,6 +402,59 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           )}
         </CommandList>
       </Command>
+
+      {/* Delete Project Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Project</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete project "<strong>{projectToDelete?.name}</strong>"?
+              <br />
+              <span className="text-muted-foreground text-xs mt-2 block">
+                Path: {projectToDelete?.path}
+              </span>
+              <br />
+              This will only remove the project from Odyssey, actual files will not be deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelDeleteProject} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteProject} disabled={deleting}>
+              {deleting ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Context Menu */}
+      {contextMenu.show && (
+        <div
+          className="fixed z-50 min-w-[180px] bg-background border rounded-md shadow-lg py-1"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={handleContextMenuDelete}
+            className="w-full px-3 py-2 text-left text-sm text-destructive hover:bg-accent hover:text-destructive flex items-center space-x-2"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>Delete Project</span>
+          </button>
+        </div>
+      )}
     </motion.div>
   )
 }

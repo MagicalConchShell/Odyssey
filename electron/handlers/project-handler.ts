@@ -29,3 +29,10 @@ export async function scanClaudeProjects(_event: IpcMainInvokeEvent): Promise<Cl
 export async function importClaudeProjects(_event: IpcMainInvokeEvent, claudeProjectIds: string[]): Promise<{ imported: number, failed: number }> {
   return await projectService.importClaudeProjects(claudeProjectIds);
 }
+
+/**
+ * Delete project by ID
+ */
+export async function deleteProject(_event: IpcMainInvokeEvent, id: string): Promise<boolean> {
+  return await projectService.deleteProject(id);
+}
